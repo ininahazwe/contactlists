@@ -5,6 +5,13 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Un seul deploiement a la fois : deux runs simultanes se marchent dessus
+# (l'un supprime des dossiers pendant que l'autre les remplit). Les runs
+# suivants attendent leur tour plutot que d'etre annules a mi-chemin.
+concurrency:
+  group: deploy-contactlists
+  cancel-in-progress: false
+
 env:
   VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
 
@@ -162,6 +169,10 @@ jobs:
             echo "✅ PM2 started"
 
             echo "🔍 Validating..."
+            # Le shell etait positionne dans APP_PATH : on en sort avant de
+            # valider, sinon toute suppression de ce dossier rend le repertoire
+            # courant invalide et pm2 echoue avec 'ENOENT: uv_cwd'.
+            cd "$HOME"
             ERRORS=0
             [ -d "$APP_PATH/dist" ]     && echo "  ✅ backend dist"  || { echo "  ❌ backend dist missing"; ERRORS=$((ERRORS+1)); }
             [ -f "$PROD_PATH/index.html" ] && echo "  ✅ frontend index.html" || { echo "  ❌ frontend index.html missing"; ERRORS=$((ERRORS+1)); }
