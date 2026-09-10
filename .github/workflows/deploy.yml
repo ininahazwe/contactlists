@@ -78,6 +78,19 @@ jobs:
             APP_PORT=$(grep -E '^PORT=' "$APP_PATH/.env" | cut -d '=' -f2 | tr -d '[:space:]')
             APP_PORT="${APP_PORT:-4000}"
 
+            # Variables obligatoires : le backend refuse de démarrer si l'une est vide.
+            # On échoue ici, avant de toucher quoi que ce soit, plutôt qu'après le build.
+            MISSING=""
+            for VAR in DB_USER DB_PASSWORD DB_NAME JWT_SECRET GOOGLE_CLIENT_ID; do
+              VALUE=$(grep -E "^$VAR=" "$APP_PATH/.env" | head -1 | cut -d '=' -f2- | tr -d '[:space:]')
+              [ -z "$VALUE" ] && MISSING="$MISSING $VAR"
+            done
+            if [ -n "$MISSING" ]; then
+              echo "❌ Variables vides ou absentes dans $APP_PATH/.env :$MISSING"
+              exit 1
+            fi
+            echo "✅ Variables d'environnement obligatoires présentes"
+
             echo "🎨 Building frontend..."
             cd "$FRONTEND_DIR"
             npm ci --quiet
@@ -131,8 +144,12 @@ jobs:
             echo "     'Setup Node.js App' (Passenger) dans cPanel à la place de PM2."
 
             echo "🚀 Starting PM2..."
-            pm2 start "$APP_PATH/dist/server.js" \
+            # DOTENV_CONFIG_PATH + --cwd : le .env est chargé par son chemin absolu.
+            # Sans ça, dotenv le cherche dans le répertoire de travail du process
+            # (que PM2 place sur dist/), où il n'existe pas.
+            DOTENV_CONFIG_PATH="$APP_PATH/.env" pm2 start "$APP_PATH/dist/server.js" \
               --name "$APP_NAME" \
+              --cwd "$APP_PATH" \
               --watch false \
               --max-memory-restart "500M" \
               --error "$APP_PATH/logs/error.log" \
@@ -235,7 +252,10 @@ jobs:
             APP_PATH="/home/${{ secrets.SSH_USER }}/apps/contact-platform-backend"
             PROD_PATH="/home/${{ secrets.SSH_USER }}/public_html/contactlists.mfwa.org"
             LATEST_BACKUP=$(ls -td /home/${{ secrets.SSH_USER }}/backups/contactlists-* 2>/dev/null | head -1)
-            if [ -n "$LATEST_BACKUP" ] && [ -d "$LATEST_BACKUP" ]; then
+            # On ne restaure QUE si le backup contient un déploiement précédent réel.
+            # Sur un premier déploiement le backup est vide (seul le .env existait) :
+            # le restaurer effacerait les fichiers qui viennent d'être déposés.
+            if [ -d "$LATEST_BACKUP/app/dist" ]; then
               echo "🔄 Rolling back to $LATEST_BACKUP"
               pm2 stop "$APP_NAME" --silent || true
               rm -rf "$APP_PATH"
@@ -249,7 +269,8 @@ jobs:
               pm2 save --silent
               echo "✅ Rollback complete"
             else
-              echo "⚠️ No backup found — prod preserved as-is"
+              echo "⚠️ Pas de déploiement précédent à restaurer — état actuel préservé tel quel"
+              echo "   (les fichiers déposés par ce run restent en place pour diagnostic)"
             fi
 
       - name: Prune old backups
