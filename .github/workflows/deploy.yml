@@ -1,0 +1,247 @@
+name: 🚀 Deploy Backend - Contact Platform
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Deploy backend to cPanel
+        id: deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          timeout: 600s
+          command_timeout: 600s
+          script: |
+            set -e
+            echo "=== Starting backend deployment ==="
+
+            # ─────────── Configuration ───────────
+            APP_NAME="contact-platform-api"
+            DOMAIN="contactlists.mfwa.org"
+            GIT_URL="https://github.com/ininahazwe/contactlists.git"
+
+            REPO_PATH="/home/${{ secrets.SSH_USER }}/repositories/contactlists"
+            PROD_PATH="/home/${{ secrets.SSH_USER }}/public_html/$DOMAIN"
+            BACKUP_PATH="/home/${{ secrets.SSH_USER }}/backups/contactlists-$(date +%Y%m%d-%H%M%S)"
+            BACKEND_DIR="$REPO_PATH/backend"
+
+            echo "📦 Creating backup..."
+            mkdir -p "$(dirname "$BACKUP_PATH")"
+            cp -r "$PROD_PATH" "$BACKUP_PATH" 2>/dev/null || true
+            echo "✅ Backup created"
+
+            echo "📥 Fetching code..."
+            if [ ! -d "$REPO_PATH/.git" ]; then
+              echo "  ↳ premier déploiement : clonage du dépôt"
+              mkdir -p "$(dirname "$REPO_PATH")"
+              git clone --quiet "$GIT_URL" "$REPO_PATH"
+            fi
+            cd "$REPO_PATH"
+            git fetch origin main --quiet
+            git reset --hard origin/main --quiet
+            COMMIT_HASH=$(git rev-parse --short HEAD)
+            echo "✅ Git pulled (commit: $COMMIT_HASH)"
+
+            echo "🔧 Building backend..."
+            cd "$BACKEND_DIR"
+            npm ci --quiet
+            npm run build --quiet
+            echo "✅ Backend compiled"
+
+            mkdir -p "$PROD_PATH"
+
+            echo "🛑 Clearing old PM2 process..."
+            pm2 delete "$APP_NAME" --silent || true
+            sleep 1
+
+            echo "📤 Deploying files..."
+            # Le .env de prod (DB, JWT, Google, S3, Resend, CLIENT_URL) n'est
+            # JAMAIS touché ici — il est déposé une fois à la main sur le serveur.
+            rm -rf "$PROD_PATH/dist" "$PROD_PATH/node_modules" "$PROD_PATH/logs"
+            mkdir -p "$PROD_PATH/logs"
+            cp -r "$BACKEND_DIR/dist" "$PROD_PATH/dist"
+            cp "$BACKEND_DIR/package.json" "$PROD_PATH/package.json"
+            cp "$BACKEND_DIR/package-lock.json" "$PROD_PATH/package-lock.json"
+            # scripts SQL embarqués pour pouvoir migrer à la main si besoin
+            rm -rf "$PROD_PATH/sql"
+            cp -r "$BACKEND_DIR/sql" "$PROD_PATH/sql" 2>/dev/null || true
+            echo "✅ Files deployed"
+
+            if [ ! -f "$PROD_PATH/.env" ]; then
+              echo "❌ $PROD_PATH/.env introuvable — à créer à la main avant le premier déploiement"
+              echo "   (DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, JWT_SECRET,"
+              echo "    GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, ALLOWED_GOOGLE_WORKSPACE_DOMAIN,"
+              echo "    CLIENT_URL=<url Vercel du front>, PORT, S3_*, RESEND_API_KEY)"
+              exit 1
+            fi
+
+            echo "🔧 Writing .htaccess (reverse-proxy Apache -> process Node)..."
+            APP_PORT=$(grep -E '^PORT=' "$PROD_PATH/.env" | cut -d '=' -f2 | tr -d '[:space:]')
+            APP_PORT="${APP_PORT:-4000}"
+            printf 'RewriteEngine On\nRewriteRule ^(.*)$ http://127.0.0.1:%s/$1 [P,L]\n' "$APP_PORT" > "$PROD_PATH/.htaccess"
+            echo "✅ .htaccess written (port $APP_PORT)"
+            echo "  ⚠️  Si l'hébergement n'a pas mod_proxy activé, utiliser plutôt"
+            echo "     'Setup Node.js App' (Passenger) dans cPanel à la place de PM2."
+
+            echo "📦 Installing dependencies..."
+            cd "$PROD_PATH"
+            npm install --omit=dev --quiet
+            echo "✅ Dependencies installed"
+
+            echo "🚀 Starting PM2..."
+            pm2 start "$PROD_PATH/dist/server.js" \
+              --name "$APP_NAME" \
+              --watch false \
+              --max-memory-restart "500M" \
+              --error "$PROD_PATH/logs/error.log" \
+              --output "$PROD_PATH/logs/out.log" \
+              --node-args="--require dotenv/config" \
+              --update-env \
+              --silent
+            sleep 4
+            pm2 save --silent
+            echo "✅ PM2 started"
+
+            echo "🔍 Validating..."
+            ERRORS=0
+            [ -d "$PROD_PATH/dist" ] && echo "  ✅ dist" || { echo "  ❌ dist missing"; ERRORS=$((ERRORS+1)); }
+            [ -f "$PROD_PATH/.env" ] && echo "  ✅ .env" || { echo "  ❌ .env missing"; ERRORS=$((ERRORS+1)); }
+
+            PM2_STATUS=$(pm2 jlist | node -e "
+            const fs = require('fs');
+            const list = JSON.parse(fs.readFileSync(0, 'utf-8'));
+            const app = list.find(p => p.name === '$APP_NAME');
+            if (!app) { console.log('missing'); process.exit(0); }
+            console.log(app.pm2_env.status);
+            ")
+
+            if [ "$PM2_STATUS" = "online" ]; then
+              echo "  ✅ PM2 online"
+            else
+              echo "  ❌ PM2 not online (statut actuel: $PM2_STATUS)"
+              pm2 logs "$APP_NAME" --lines 30 --nostream || true
+              ERRORS=$((ERRORS+1))
+            fi
+
+            LOCAL_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$APP_PORT/health" || echo "000")
+            if [ "$LOCAL_CODE" = "200" ]; then
+              echo "  ✅ /health local (port $APP_PORT)"
+            else
+              echo "  ❌ /health local KO (HTTP $LOCAL_CODE) — port occupé ou variable d'env manquante ?"
+              ERRORS=$((ERRORS+1))
+            fi
+
+            if [ $ERRORS -gt 0 ]; then
+              echo "❌ Validation failed ($ERRORS errors)"
+              exit 1
+            fi
+            echo "✅ All validations passed"
+            echo "=== ✨ Deploy complete (commit: $COMMIT_HASH) ==="
+
+      - name: Test health endpoint
+        id: health_test
+        run: |
+          sleep 5
+          for i in {1..5}; do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" https://contactlists.mfwa.org/health)
+            if [ "$CODE" = "200" ]; then echo "✅ Health OK"; exit 0; fi
+            echo "⏳ Attempt $i/5 (HTTP $CODE), retrying..."
+            sleep 3
+          done
+          echo "❌ Health endpoint failed"; exit 1
+
+      - name: Test protected API route
+        id: api_test
+        run: |
+          # /api/search/facets exige une session (requireAuth) : un 401 sans
+          # cookie prouve que l'API et le middleware d'auth répondent bien.
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://contactlists.mfwa.org/api/search/facets")
+          if [ "$CODE" = "401" ] || [ "$CODE" = "200" ]; then
+            echo "✅ /api/search/facets répond (HTTP $CODE)"
+          else
+            echo "❌ /api/search/facets KO (HTTP $CODE)"; exit 1
+          fi
+
+      - name: Success notification
+        if: success()
+        run: |
+          echo "✅ DEPLOYMENT SUCCESSFUL"
+          echo "API: https://contactlists.mfwa.org"
+          echo "Commit: ${{ github.sha }}"
+
+      - name: Failure - Rollback
+        if: failure()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            APP_NAME="contact-platform-api"
+            PROD_PATH="/home/${{ secrets.SSH_USER }}/public_html/contactlists.mfwa.org"
+            LATEST_BACKUP=$(ls -td /home/${{ secrets.SSH_USER }}/backups/contactlists-* 2>/dev/null | head -1)
+            if [ -n "$LATEST_BACKUP" ] && [ -d "$LATEST_BACKUP" ]; then
+              echo "🔄 Rolling back to $LATEST_BACKUP"
+              APP_PORT=$(grep -E '^PORT=' "$LATEST_BACKUP/.env" 2>/dev/null | cut -d '=' -f2 | tr -d '[:space:]')
+              APP_PORT="${APP_PORT:-4000}"
+              pm2 stop "$APP_NAME" --silent || true
+              rm -rf "$PROD_PATH"
+              cp -r "$LATEST_BACKUP" "$PROD_PATH"
+              cd "$PROD_PATH"
+              pm2 delete "$APP_NAME" --silent || true
+              pm2 start dist/server.js --name "$APP_NAME" --node-args="--require dotenv/config" --silent
+              sleep 2
+              pm2 save --silent
+              echo "✅ Rollback complete"
+            else
+              echo "⚠️ No backup found — prod preserved as-is"
+            fi
+
+      - name: Prune old backups
+        if: always()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /home/${{ secrets.SSH_USER }}/backups || exit 0
+            ls -td contactlists-* 2>/dev/null | tail -n +6 | xargs -r rm -rf
+            echo "🧹 Backups conservés : $(ls -d contactlists-* 2>/dev/null | wc -l)"
+
+      - name: Slack notification
+        if: always() && vars.SLACK_WEBHOOK != ''
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK }}
+          payload: |
+            {
+              "text": "${{ job.status == 'success' && '✅ Deploy successful' || '❌ Deploy failed' }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*${{ job.status == 'success' && '✅ Contact Platform API' || '❌ Deploy Failed' }}*\n`${{ github.ref_name }}` → `${{ github.sha }}`"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    { "type": "button", "text": { "type": "plain_text", "text": "View API" }, "url": "https://contactlists.mfwa.org/health" },
+                    { "type": "button", "text": { "type": "plain_text", "text": "View Logs" }, "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" }
+                  ]
+                }
+              ]
+            }
