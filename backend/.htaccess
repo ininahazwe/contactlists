@@ -1,0 +1,16 @@
+# Reverse-proxy Apache -> processus Node local (cPanel)
+#
+# Ce backend ne sert pas de front (le front est déployé séparément sur Vercel),
+# donc toutes les requêtes sont transmises telles quelles au process Node qui
+# tourne sur cette même machine, sur le port défini dans .env (PORT, 4000 par défaut).
+#
+# Prérequis côté cPanel/Apache : mod_proxy et mod_proxy_http doivent être activés.
+# Sur beaucoup d'hébergements mutualisés ces modules sont désactivés pour les
+# comptes clients — si c'est le cas ici, la voie recommandée par cPanel est
+# "Setup Node.js App" (Phusion Passenger), qui gère lui-même le reverse-proxy
+# sans avoir besoin de ce fichier. À tester en premier sur l'hébergement cible.
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule ^(.*)$ http://127.0.0.1:4000/$1 [P,L]
+</IfModule>
