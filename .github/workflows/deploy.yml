@@ -252,7 +252,10 @@ jobs:
           echo "Commit: ${{ github.sha }}"
 
       - name: Failure - Rollback
-        if: failure()
+        # UNIQUEMENT si le deploiement lui-meme a echoue. Un test public en
+        # echec (DNS, proxy, domaine mal dirige) ne dit rien sur les fichiers
+        # deposes : restaurer dans ce cas detruit un deploiement reussi.
+        if: failure() && steps.deploy.outcome == 'failure'
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -263,10 +266,10 @@ jobs:
             APP_PATH="/home/${{ secrets.SSH_USER }}/apps/contact-platform-backend"
             PROD_PATH="/home/${{ secrets.SSH_USER }}/public_html/contactlists.mfwa.org"
             LATEST_BACKUP=$(ls -td /home/${{ secrets.SSH_USER }}/backups/contactlists-* 2>/dev/null | head -1)
-            # On ne restaure QUE si le backup contient un déploiement précédent réel.
-            # Sur un premier déploiement le backup est vide (seul le .env existait) :
-            # le restaurer effacerait les fichiers qui viennent d'être déposés.
-            if [ -d "$LATEST_BACKUP/app/dist" ]; then
+            # On ne restaure QUE si le backup contient un deploiement precedent
+            # COMPLET (backend compile ET frontend construit). Un backup partiel
+            # vient d'un etat deja casse : le restaurer aggrave la situation.
+            if [ -d "$LATEST_BACKUP/app/dist" ] && [ -f "$LATEST_BACKUP/public_html/index.html" ]; then
               echo "🔄 Rolling back to $LATEST_BACKUP"
               pm2 stop "$APP_NAME" --silent || true
               rm -rf "$APP_PATH"
