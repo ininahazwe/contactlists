@@ -1,9 +1,12 @@
-name: 🚀 Deploy Backend - Contact Platform
+name: 🚀 Deploy - Contact Platform
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+
+env:
+  VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
 
 jobs:
   deploy:
@@ -13,7 +16,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Deploy backend to cPanel
+      - name: Deploy to cPanel
         id: deploy
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -22,9 +25,10 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           timeout: 600s
           command_timeout: 600s
+          envs: VITE_GOOGLE_CLIENT_ID
           script: |
             set -e
-            echo "=== Starting backend deployment ==="
+            echo "=== Starting deployment ==="
 
             # ─────────── Configuration ───────────
             APP_NAME="contact-platform-api"
@@ -32,13 +36,22 @@ jobs:
             GIT_URL="https://github.com/ininahazwe/contactlists.git"
 
             REPO_PATH="/home/${{ secrets.SSH_USER }}/repositories/contactlists"
+            # Le backend tourne HORS de public_html (pas exposé au web directement,
+            # seul Apache/.htaccess le proxie) : .env, node_modules et les logs n'y
+            # sont donc jamais accessibles par une URL.
+            APP_PATH="/home/${{ secrets.SSH_USER }}/apps/contact-platform-backend"
+            # public_html est le docroot Apache : uniquement les fichiers statiques du frontend + .htaccess
             PROD_PATH="/home/${{ secrets.SSH_USER }}/public_html/$DOMAIN"
             BACKUP_PATH="/home/${{ secrets.SSH_USER }}/backups/contactlists-$(date +%Y%m%d-%H%M%S)"
+
             BACKEND_DIR="$REPO_PATH/backend"
+            FRONTEND_DIR="$REPO_PATH/frontend"
 
             echo "📦 Creating backup..."
             mkdir -p "$(dirname "$BACKUP_PATH")"
-            cp -r "$PROD_PATH" "$BACKUP_PATH" 2>/dev/null || true
+            mkdir -p "$BACKUP_PATH"
+            cp -r "$PROD_PATH" "$BACKUP_PATH/public_html" 2>/dev/null || true
+            cp -r "$APP_PATH" "$BACKUP_PATH/app" 2>/dev/null || true
             echo "✅ Backup created"
 
             echo "📥 Fetching code..."
@@ -53,59 +66,77 @@ jobs:
             COMMIT_HASH=$(git rev-parse --short HEAD)
             echo "✅ Git pulled (commit: $COMMIT_HASH)"
 
+            # Le .env de l'app (DB, JWT, Google, S3, Resend, PORT) n'est JAMAIS
+            # touché ici — déposé une fois à la main sur le serveur, dans APP_PATH.
+            if [ ! -f "$APP_PATH/.env" ]; then
+              echo "❌ $APP_PATH/.env introuvable — à créer à la main avant le premier déploiement"
+              echo "   (DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, JWT_SECRET,"
+              echo "    GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, ALLOWED_GOOGLE_WORKSPACE_DOMAIN,"
+              echo "    CLIENT_URL=https://$DOMAIN, PORT, S3_*, RESEND_API_KEY)"
+              exit 1
+            fi
+            APP_PORT=$(grep -E '^PORT=' "$APP_PATH/.env" | cut -d '=' -f2 | tr -d '[:space:]')
+            APP_PORT="${APP_PORT:-4000}"
+
+            echo "🎨 Building frontend..."
+            cd "$FRONTEND_DIR"
+            npm ci --quiet
+            VITE_API_URL="https://$DOMAIN/api" \
+            VITE_GOOGLE_CLIENT_ID="$VITE_GOOGLE_CLIENT_ID" \
+            npm run build --quiet
+            echo "✅ Frontend built"
+
             echo "🔧 Building backend..."
             cd "$BACKEND_DIR"
             npm ci --quiet
             npm run build --quiet
             echo "✅ Backend compiled"
 
-            mkdir -p "$PROD_PATH"
-
             echo "🛑 Clearing old PM2 process..."
             pm2 delete "$APP_NAME" --silent || true
             sleep 1
 
-            echo "📤 Deploying files..."
-            # Le .env de prod (DB, JWT, Google, S3, Resend, CLIENT_URL) n'est
-            # JAMAIS touché ici — il est déposé une fois à la main sur le serveur.
-            rm -rf "$PROD_PATH/dist" "$PROD_PATH/node_modules" "$PROD_PATH/logs"
-            mkdir -p "$PROD_PATH/logs"
-            cp -r "$BACKEND_DIR/dist" "$PROD_PATH/dist"
-            cp "$BACKEND_DIR/package.json" "$PROD_PATH/package.json"
-            cp "$BACKEND_DIR/package-lock.json" "$PROD_PATH/package-lock.json"
-            # scripts SQL embarqués pour pouvoir migrer à la main si besoin
-            rm -rf "$PROD_PATH/sql"
-            cp -r "$BACKEND_DIR/sql" "$PROD_PATH/sql" 2>/dev/null || true
-            echo "✅ Files deployed"
+            echo "📤 Deploying backend..."
+            mkdir -p "$APP_PATH/logs"
+            rm -rf "$APP_PATH/dist" "$APP_PATH/node_modules" "$APP_PATH/sql"
+            cp -r "$BACKEND_DIR/dist" "$APP_PATH/dist"
+            cp "$BACKEND_DIR/package.json" "$APP_PATH/package.json"
+            cp "$BACKEND_DIR/package-lock.json" "$APP_PATH/package-lock.json"
+            cp -r "$BACKEND_DIR/sql" "$APP_PATH/sql" 2>/dev/null || true
+            cd "$APP_PATH"
+            npm install --omit=dev --quiet
+            echo "✅ Backend deployed"
 
-            if [ ! -f "$PROD_PATH/.env" ]; then
-              echo "❌ $PROD_PATH/.env introuvable — à créer à la main avant le premier déploiement"
-              echo "   (DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, JWT_SECRET,"
-              echo "    GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, ALLOWED_GOOGLE_WORKSPACE_DOMAIN,"
-              echo "    CLIENT_URL=<url Vercel du front>, PORT, S3_*, RESEND_API_KEY)"
-              exit 1
-            fi
+            echo "📤 Deploying frontend (static)..."
+            mkdir -p "$PROD_PATH"
+            find "$PROD_PATH" -mindepth 1 -maxdepth 1 ! -name '.htaccess' -exec rm -rf {} +
+            cp -r "$FRONTEND_DIR/dist"/* "$PROD_PATH/"
+            echo "✅ Frontend deployed"
 
-            echo "🔧 Writing .htaccess (reverse-proxy Apache -> process Node)..."
-            APP_PORT=$(grep -E '^PORT=' "$PROD_PATH/.env" | cut -d '=' -f2 | tr -d '[:space:]')
-            APP_PORT="${APP_PORT:-4000}"
-            printf 'RewriteEngine On\nRewriteRule ^(.*)$ http://127.0.0.1:%s/$1 [P,L]\n' "$APP_PORT" > "$PROD_PATH/.htaccess"
-            echo "✅ .htaccess written (port $APP_PORT)"
+            echo "🔧 Writing .htaccess (statique + reverse-proxy API -> Node)..."
+            cat > "$PROD_PATH/.htaccess" << HTACCESS_EOF
+            RewriteEngine On
+
+            # API et health check -> processus Node local
+            RewriteRule ^api/(.*)$ http://127.0.0.1:${APP_PORT}/api/\$1 [P,L]
+            RewriteRule ^health$ http://127.0.0.1:${APP_PORT}/health [P,L]
+
+            # SPA : tout le reste qui n'est pas un fichier existant -> index.html
+            RewriteCond %{REQUEST_FILENAME} !-f
+            RewriteCond %{REQUEST_FILENAME} !-d
+            RewriteRule ^ index.html [L]
+            HTACCESS_EOF
+            echo "✅ .htaccess written (proxy vers port $APP_PORT)"
             echo "  ⚠️  Si l'hébergement n'a pas mod_proxy activé, utiliser plutôt"
             echo "     'Setup Node.js App' (Passenger) dans cPanel à la place de PM2."
 
-            echo "📦 Installing dependencies..."
-            cd "$PROD_PATH"
-            npm install --omit=dev --quiet
-            echo "✅ Dependencies installed"
-
             echo "🚀 Starting PM2..."
-            pm2 start "$PROD_PATH/dist/server.js" \
+            pm2 start "$APP_PATH/dist/server.js" \
               --name "$APP_NAME" \
               --watch false \
               --max-memory-restart "500M" \
-              --error "$PROD_PATH/logs/error.log" \
-              --output "$PROD_PATH/logs/out.log" \
+              --error "$APP_PATH/logs/error.log" \
+              --output "$APP_PATH/logs/out.log" \
               --node-args="--require dotenv/config" \
               --update-env \
               --silent
@@ -115,8 +146,8 @@ jobs:
 
             echo "🔍 Validating..."
             ERRORS=0
-            [ -d "$PROD_PATH/dist" ] && echo "  ✅ dist" || { echo "  ❌ dist missing"; ERRORS=$((ERRORS+1)); }
-            [ -f "$PROD_PATH/.env" ] && echo "  ✅ .env" || { echo "  ❌ .env missing"; ERRORS=$((ERRORS+1)); }
+            [ -d "$APP_PATH/dist" ]     && echo "  ✅ backend dist"  || { echo "  ❌ backend dist missing"; ERRORS=$((ERRORS+1)); }
+            [ -f "$PROD_PATH/index.html" ] && echo "  ✅ frontend index.html" || { echo "  ❌ frontend index.html missing"; ERRORS=$((ERRORS+1)); }
 
             PM2_STATUS=$(pm2 jlist | node -e "
             const fs = require('fs');
@@ -173,11 +204,23 @@ jobs:
             echo "❌ /api/search/facets KO (HTTP $CODE)"; exit 1
           fi
 
+      - name: Test frontend
+        id: frontend_test
+        run: |
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://contactlists.mfwa.org/")
+          [ "$CODE" = "200" ] && echo "✅ Frontend OK" || { echo "❌ Frontend KO (HTTP $CODE)"; exit 1; }
+
+      - name: Test SPA fallback
+        id: spa_test
+        run: |
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://contactlists.mfwa.org/some/deep/route")
+          [ "$CODE" = "200" ] && echo "✅ SPA fallback OK" || { echo "❌ SPA fallback KO (HTTP $CODE)"; exit 1; }
+
       - name: Success notification
         if: success()
         run: |
           echo "✅ DEPLOYMENT SUCCESSFUL"
-          echo "API: https://contactlists.mfwa.org"
+          echo "App: https://contactlists.mfwa.org"
           echo "Commit: ${{ github.sha }}"
 
       - name: Failure - Rollback
@@ -189,16 +232,17 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             APP_NAME="contact-platform-api"
+            APP_PATH="/home/${{ secrets.SSH_USER }}/apps/contact-platform-backend"
             PROD_PATH="/home/${{ secrets.SSH_USER }}/public_html/contactlists.mfwa.org"
             LATEST_BACKUP=$(ls -td /home/${{ secrets.SSH_USER }}/backups/contactlists-* 2>/dev/null | head -1)
             if [ -n "$LATEST_BACKUP" ] && [ -d "$LATEST_BACKUP" ]; then
               echo "🔄 Rolling back to $LATEST_BACKUP"
-              APP_PORT=$(grep -E '^PORT=' "$LATEST_BACKUP/.env" 2>/dev/null | cut -d '=' -f2 | tr -d '[:space:]')
-              APP_PORT="${APP_PORT:-4000}"
               pm2 stop "$APP_NAME" --silent || true
-              rm -rf "$PROD_PATH"
-              cp -r "$LATEST_BACKUP" "$PROD_PATH"
-              cd "$PROD_PATH"
+              rm -rf "$APP_PATH"
+              cp -r "$LATEST_BACKUP/app" "$APP_PATH" 2>/dev/null || true
+              find "$PROD_PATH" -mindepth 1 -maxdepth 1 ! -name '.htaccess' -exec rm -rf {} + 2>/dev/null || true
+              cp -r "$LATEST_BACKUP/public_html/"* "$PROD_PATH/" 2>/dev/null || true
+              cd "$APP_PATH"
               pm2 delete "$APP_NAME" --silent || true
               pm2 start dist/server.js --name "$APP_NAME" --node-args="--require dotenv/config" --silent
               sleep 2
@@ -233,13 +277,13 @@ jobs:
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "*${{ job.status == 'success' && '✅ Contact Platform API' || '❌ Deploy Failed' }}*\n`${{ github.ref_name }}` → `${{ github.sha }}`"
+                    "text": "*${{ job.status == 'success' && '✅ Contact Platform' || '❌ Deploy Failed' }}*\n`${{ github.ref_name }}` → `${{ github.sha }}`"
                   }
                 },
                 {
                   "type": "actions",
                   "elements": [
-                    { "type": "button", "text": { "type": "plain_text", "text": "View API" }, "url": "https://contactlists.mfwa.org/health" },
+                    { "type": "button", "text": { "type": "plain_text", "text": "View App" }, "url": "https://contactlists.mfwa.org" },
                     { "type": "button", "text": { "type": "plain_text", "text": "View Logs" }, "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" }
                   ]
                 }
