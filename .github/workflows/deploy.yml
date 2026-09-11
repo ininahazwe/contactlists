@@ -47,8 +47,10 @@ jobs:
             # seul Apache/.htaccess le proxie) : .env, node_modules et les logs n'y
             # sont donc jamais accessibles par une URL.
             APP_PATH="/home/${{ secrets.SSH_USER }}/apps/contact-platform-backend"
-            # public_html est le docroot Apache : uniquement les fichiers statiques du frontend + .htaccess
-            PROD_PATH="/home/${{ secrets.SSH_USER }}/public_html/$DOMAIN"
+            # Racine du domaine telle que cPanel la declare (Domains > Document Root).
+            # Ce n'est PAS public_html/$DOMAIN : le dossier reellement servi par
+            # Apache pour contactlists.mfwa.org est public_html/contactlists.
+            PROD_PATH="/home/${{ secrets.SSH_USER }}/public_html/contactlists"
             BACKUP_PATH="/home/${{ secrets.SSH_USER }}/backups/contactlists-$(date +%Y%m%d-%H%M%S)"
 
             BACKEND_DIR="$REPO_PATH/backend"
@@ -129,12 +131,25 @@ jobs:
 
             echo "📤 Deploying frontend (static)..."
             mkdir -p "$PROD_PATH"
-            find "$PROD_PATH" -mindepth 1 -maxdepth 1 ! -name '.htaccess' -exec rm -rf {} +
+            # Ce docroot contient aussi des fichiers qui appartiennent a cPanel :
+            # .well-known (renouvellement du certificat SSL), php.ini, .user.ini.
+            # Les supprimer casserait le HTTPS : on ne retire que nos propres fichiers.
+            find "$PROD_PATH" -mindepth 1 -maxdepth 1 \
+              ! -name '.htaccess' ! -name '.well-known' ! -name 'php.ini' \
+              ! -name '.user.ini' ! -name 'cgi-bin' ! -name '.env' \
+              -exec rm -rf {} +
             cp -r "$FRONTEND_DIR/dist"/* "$PROD_PATH/"
             echo "✅ Frontend deployed"
 
             echo "🔧 Writing .htaccess (statique + reverse-proxy API -> Node)..."
-            cat > "$PROD_PATH/.htaccess" << HTACCESS_EOF
+            # Le .htaccess de ce dossier contient deja des directives PHP generees
+            # par cPanel : on ne l'ecrase pas, on remplace uniquement notre bloc.
+            HT="$PROD_PATH/.htaccess"
+            touch "$HT"
+            sed -i '/# BEGIN contact-platform/,/# END contact-platform/d' "$HT"
+            HT_TMP=$(mktemp)
+            cat > "$HT_TMP" << HTACCESS_EOF
+            # BEGIN contact-platform - genere par le deploiement, ne pas editer
             RewriteEngine On
 
             # API et health check -> processus Node local
@@ -145,7 +160,11 @@ jobs:
             RewriteCond %{REQUEST_FILENAME} !-f
             RewriteCond %{REQUEST_FILENAME} !-d
             RewriteRule ^ index.html [L]
+            # END contact-platform
             HTACCESS_EOF
+            cat "$HT" >> "$HT_TMP"
+            mv "$HT_TMP" "$HT"
+            chmod 644 "$HT"
             echo "✅ .htaccess written (proxy vers port $APP_PORT)"
             echo "  ⚠️  Si l'hébergement n'a pas mod_proxy activé, utiliser plutôt"
             echo "     'Setup Node.js App' (Passenger) dans cPanel à la place de PM2."
@@ -264,7 +283,7 @@ jobs:
           script: |
             APP_NAME="contact-platform-api"
             APP_PATH="/home/${{ secrets.SSH_USER }}/apps/contact-platform-backend"
-            PROD_PATH="/home/${{ secrets.SSH_USER }}/public_html/contactlists.mfwa.org"
+            PROD_PATH="/home/${{ secrets.SSH_USER }}/public_html/contactlists"
             LATEST_BACKUP=$(ls -td /home/${{ secrets.SSH_USER }}/backups/contactlists-* 2>/dev/null | head -1)
             # On ne restaure QUE si le backup contient un deploiement precedent
             # COMPLET (backend compile ET frontend construit). Un backup partiel
@@ -274,7 +293,10 @@ jobs:
               pm2 stop "$APP_NAME" --silent || true
               rm -rf "$APP_PATH"
               cp -r "$LATEST_BACKUP/app" "$APP_PATH" 2>/dev/null || true
-              find "$PROD_PATH" -mindepth 1 -maxdepth 1 ! -name '.htaccess' -exec rm -rf {} + 2>/dev/null || true
+              find "$PROD_PATH" -mindepth 1 -maxdepth 1 \
+                ! -name '.htaccess' ! -name '.well-known' ! -name 'php.ini' \
+                ! -name '.user.ini' ! -name 'cgi-bin' ! -name '.env' \
+                -exec rm -rf {} + 2>/dev/null || true
               cp -r "$LATEST_BACKUP/public_html/"* "$PROD_PATH/" 2>/dev/null || true
               cd "$APP_PATH"
               pm2 delete "$APP_NAME" --silent || true
