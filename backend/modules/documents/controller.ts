@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { AppError } from "../../utils/AppError";
-import { recordAudit } from "../../middleware/auditLogger";
+import { recordAudit, recordRead } from "../../middleware/auditLogger";
 import { confirmUploadSchema, requestUploadSchema } from "./schema";
 import * as service from "./service";
 
@@ -39,6 +39,12 @@ export async function list(req: Request, res: Response): Promise<void> {
 export async function download(req: Request, res: Response): Promise<void> {
   const id = Number(req.params.id);
   const { document, url } = await service.getDocumentDownloadUrl(id);
+
+  // Who downloaded which attachment is the most sensitive read there is.
+  if (req.user) {
+    await recordRead({ userId: req.user.id, entityType: "document", entityId: id, req });
+  }
+
   res.json({ document, url });
 }
 

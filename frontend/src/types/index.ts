@@ -247,3 +247,47 @@ export const USER_ROLE_LABELS: Record<UserRole, string> = {
   editor: "Editor",
   read_only: "Read only",
 };
+
+export type AuditAction = "create" | "update" | "delete" | "login" | "read";
+
+export interface AuditEntry {
+  id: number;
+  user_id: number | null;
+  user_name: string | null;
+  user_email: string | null;
+  action: AuditAction;
+  entity_type: string;
+  entity_id: string | null;
+  before_data: unknown;
+  after_data: unknown;
+  ip_address: string | null;
+  created_at: string;
+}
+
+export interface AuditSummary {
+  total: number;
+  activeUsers: number;
+  byAction: { action: string; total: number }[];
+  topUsers: {
+    user_id: number | null;
+    user_name: string | null;
+    user_email: string | null;
+    total: number;
+  }[];
+}
+
+export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
+  create: "Created",
+  update: "Edited",
+  delete: "Deleted",
+  login: "Signed in",
+  read: "Opened",
+};
+
+export const AUDIT_ENTITY_LABELS: Record<string, string> = {
+  contact: "contact",
+  organization: "organization",
+  event: "event",
+  document: "document",
+  user: "account",
+};

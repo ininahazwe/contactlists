@@ -3,6 +3,7 @@ import { AdminRoute } from "./auth/AdminRoute";
 import { AuthProvider } from "./auth/AuthContext";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import Layout from "./components/Layout";
+import AdminActivityPage from "./pages/AdminActivityPage";
 import AdminUsersPage from "./pages/AdminUsersPage";
 import ContactFormPage from "./pages/ContactFormPage";
 import EventFormPage from "./pages/EventFormPage";
@@ -29,6 +30,7 @@ export default function App() {
 
               <Route element={<AdminRoute />}>
                 <Route path="/admin/users" element={<AdminUsersPage />} />
+                <Route path="/admin/activity" element={<AdminActivityPage />} />
               </Route>
             </Route>
           </Route>

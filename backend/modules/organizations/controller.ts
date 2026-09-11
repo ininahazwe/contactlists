@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { AppError } from "../../utils/AppError";
-import { recordAudit } from "../../middleware/auditLogger";
+import { recordAudit, recordRead } from "../../middleware/auditLogger";
 import { createOrganizationSchema, updateOrganizationSchema } from "./schema";
 import * as service from "./service";
 
@@ -10,7 +10,13 @@ export async function list(req: Request, res: Response): Promise<void> {
 }
 
 export async function getOne(req: Request, res: Response): Promise<void> {
-  const organization = await service.getOrganizationById(Number(req.params.id));
+  const id = Number(req.params.id);
+  const organization = await service.getOrganizationById(id);
+
+  if (req.user) {
+    await recordRead({ userId: req.user.id, entityType: "organization", entityId: id, req });
+  }
+
   res.json({ organization });
 }
 

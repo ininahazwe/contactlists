@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import multer from "multer";
 import { AppError } from "../../utils/AppError";
-import { recordAudit } from "../../middleware/auditLogger";
+import { recordAudit, recordRead } from "../../middleware/auditLogger";
 import {
   createContactSchema,
   importContactsSchema,
@@ -29,6 +29,11 @@ export async function getOne(req: Request, res: Response): Promise<void> {
   const id = Number(req.params.id);
   const contact = await service.getContactById(id);
   const timeline = await service.getContactTimeline(id);
+
+  if (req.user) {
+    await recordRead({ userId: req.user.id, entityType: "contact", entityId: id, req });
+  }
+
   res.json({ contact, timeline });
 }
 

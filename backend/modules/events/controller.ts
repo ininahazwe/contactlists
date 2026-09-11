@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { AppError } from "../../utils/AppError";
-import { recordAudit } from "../../middleware/auditLogger";
+import { recordAudit, recordRead } from "../../middleware/auditLogger";
 import {
   addEventContactSchema,
   addEventOrganizationSchema,
@@ -25,6 +25,11 @@ export async function getOne(req: Request, res: Response): Promise<void> {
   const id = Number(req.params.id);
   const event = await service.getEventById(id);
   const organizations = await service.listEventOrganizations(id);
+
+  if (req.user) {
+    await recordRead({ userId: req.user.id, entityType: "event", entityId: id, req });
+  }
+
   res.json({ event, organizations });
 }
 
