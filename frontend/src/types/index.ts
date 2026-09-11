@@ -231,3 +231,19 @@ export interface ImportSummary {
   errors: number;
   results: ImportRowResult[];
 }
+
+export interface ManagedUser {
+  id: number;
+  email: string;
+  name: string;
+  role: UserRole;
+  is_active: number;
+  created_at: string;
+  last_login_at: string | null;
+}
+
+export const USER_ROLE_LABELS: Record<UserRole, string> = {
+  admin: "Admin",
+  editor: "Editor",
+  read_only: "Read only",
+};

@@ -11,6 +11,7 @@ import eventRoutes from "./modules/events/routes";
 import documentRoutes from "./modules/documents/routes";
 import auditRoutes from "./modules/audit/routes";
 import searchRoutes from "./modules/search/routes";
+import userRoutes from "./modules/users/routes";
 
 export function createApp(): Express {
   const app = express();
@@ -33,6 +34,7 @@ export function createApp(): Express {
   app.use("/api/documents", documentRoutes);
   app.use("/api/audit", auditRoutes);
   app.use("/api/search", searchRoutes);
+  app.use("/api/users", userRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

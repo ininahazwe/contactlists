@@ -17,6 +17,11 @@ const TABS = [
   { to: "/organizations", label: "Organizations", icon: IconBuilding, end: false },
 ];
 
+// Only shown to admins. The screen itself is guarded, and so is the API
+// behind it: hiding the tab just keeps the nav honest about what a given
+// person can actually open.
+const ADMIN_TABS = [{ to: "/admin/users", label: "Users", icon: IconUsers, end: false }];
+
 /**
  * App shell: top bar (brand, tabs, profile) and left icon rail, as in
  * the mockup. The rail provides creation shortcuts; it disappears under
@@ -37,7 +42,7 @@ export default function Layout() {
         </NavLink>
 
         <nav className="nav">
-          {TABS.map((t) => (
+          {[...TABS, ...(user?.role === "admin" ? ADMIN_TABS : [])].map((t) => (
             <NavLink
               key={t.to}
               to={t.to}
