@@ -15,7 +15,7 @@ import userRoutes from "./modules/users/routes";
 
 export function createApp(): Express {
   const app = express();
-
+  console.log("[DEBUG] env.clientUrl =", JSON.stringify(env.clientUrl));
   app.use(
     cors({
       origin: env.clientUrl,

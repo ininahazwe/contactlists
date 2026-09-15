@@ -7,6 +7,7 @@ import {
   IconBuilding,
   IconCalendar,
   IconClose,
+  IconDownload,
   IconGlobe,
   IconGrid,
   IconList,
@@ -89,6 +90,8 @@ export default function SearchPage() {
   const [results, setResults] = useState<SearchResponse>(EMPTY_RESULTS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /** Writes a criterion to the URL and resets pagination to page one. */
@@ -165,6 +168,18 @@ export default function SearchPage() {
       localStorage.setItem(VIEW_KEY, v);
     } catch {
       /* private mode: keep the preference in memory only */
+    }
+  }
+
+  async function handleExport() {
+    setExporting(true);
+    setExportError(null);
+    try {
+      await api.download(`/search/export?${queryString}`, "contact_directory_export.xlsx");
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : "Export failed");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -466,6 +481,15 @@ export default function SearchPage() {
           </span>
         </div>
         <div className="results-tools">
+          <button
+            className="btn"
+            onClick={handleExport}
+            disabled={exporting || total === 0}
+            title="Export the current results to an Excel file"
+          >
+            <IconDownload />
+            {exporting ? "Exporting…" : "Export to Excel"}
+          </button>
           <div className="seg" role="group" aria-label="Result display">
             <button
               className={`seg-btn${view === "cards" ? " is-active" : ""}`}
@@ -486,6 +510,8 @@ export default function SearchPage() {
           </div>
         </div>
       </div>
+
+      {exportError && <p className="error-text">{exportError}</p>}
 
       {error && (
         <div className="empty">
