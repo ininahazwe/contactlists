@@ -14,6 +14,7 @@ concurrency:
 
 env:
   VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+  COMMIT_HASH: ${{ github.sha }}
 
 jobs:
   deploy:
@@ -22,6 +23,77 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # ─────────────────────────────────────────────────────────────
+      # Build sur le runner GitHub (rapide, non contraint) plutot que
+      # sur l'hebergement mutualise : c'est `npm ci`/`npm run build`
+      # (charge CPU/IO soutenue) qui declenchait la coupure de session
+      # SSH cote cPanel/CloudLinux (aucune erreur de script, juste un
+      # signal TERM externe). Seuls les fichiers compiles sont ensuite
+      # envoyes au serveur - voir les etapes scp ci-dessous.
+      # ─────────────────────────────────────────────────────────────
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          VITE_API_URL: https://contactlists.mfwa.org/api
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+        run: |
+          npm ci --quiet
+          npm run build --quiet
+
+      - name: Build backend
+        working-directory: backend
+        run: |
+          npm ci --quiet
+          npm run build --quiet
+
+      - name: Prepare deploy staging
+        run: |
+          set -e
+          mkdir -p deploy_staging/backend deploy_staging/frontend
+
+          cp -r backend/dist deploy_staging/backend/dist
+          cp backend/package.json backend/package-lock.json deploy_staging/backend/
+          if [ -d backend/sql ]; then
+            cp -r backend/sql deploy_staging/backend/sql
+          fi
+
+          cp -r frontend/dist/. deploy_staging/frontend/
+
+          echo "✅ Staging prepared:"
+          find deploy_staging -maxdepth 2
+
+      - name: Upload backend artifacts
+        id: scp_backend
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "deploy_staging/backend"
+          target: "/home/${{ secrets.SSH_USER }}/_deploy_staging"
+          strip_components: 1
+          overwrite: true
+          rm: true
+
+      - name: Upload frontend artifacts
+        id: scp_frontend
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "deploy_staging/frontend"
+          target: "/home/${{ secrets.SSH_USER }}/_deploy_staging"
+          strip_components: 1
+          overwrite: true
+          rm: true
 
       - name: Deploy to cPanel
         id: deploy
@@ -32,7 +104,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           timeout: 600s
           command_timeout: 600s
-          envs: VITE_GOOGLE_CLIENT_ID
+          envs: VITE_GOOGLE_CLIENT_ID,COMMIT_HASH
           script: |
             set -e
             echo "=== Starting deployment ==="
@@ -40,9 +112,7 @@ jobs:
             # ─────────── Configuration ───────────
             APP_NAME="contact-platform-api"
             DOMAIN="contactlists.mfwa.org"
-            GIT_URL="https://github.com/ininahazwe/contactlists.git"
 
-            REPO_PATH="/home/${{ secrets.SSH_USER }}/repositories/contactlists"
             # Le backend tourne HORS de public_html (pas exposé au web directement,
             # seul Apache/.htaccess le proxie) : .env, node_modules et les logs n'y
             # sont donc jamais accessibles par une URL.
@@ -53,8 +123,9 @@ jobs:
             PROD_PATH="/home/${{ secrets.SSH_USER }}/public_html/contactlists"
             BACKUP_PATH="/home/${{ secrets.SSH_USER }}/backups/contactlists-$(date +%Y%m%d-%H%M%S)"
 
-            BACKEND_DIR="$REPO_PATH/backend"
-            FRONTEND_DIR="$REPO_PATH/frontend"
+            # Depose par les etapes "Upload ... artifacts" (scp) juste avant
+            # cette etape : plus de git clone/fetch ni de build sur ce serveur.
+            STAGING_PATH="/home/${{ secrets.SSH_USER }}/_deploy_staging"
 
             echo "📦 Creating backup..."
             mkdir -p "$(dirname "$BACKUP_PATH")"
@@ -73,17 +144,11 @@ jobs:
             fi
             echo "✅ Backup created (node_modules exclu)"
 
-            echo "📥 Fetching code..."
-            if [ ! -d "$REPO_PATH/.git" ]; then
-              echo "  ↳ premier déploiement : clonage du dépôt"
-              mkdir -p "$(dirname "$REPO_PATH")"
-              git clone --quiet "$GIT_URL" "$REPO_PATH"
+            if [ ! -d "$STAGING_PATH/backend/dist" ] || [ ! -f "$STAGING_PATH/frontend/index.html" ]; then
+              echo "❌ Fichiers de build introuvables dans $STAGING_PATH — l'upload scp a-t-il échoué ?"
+              exit 1
             fi
-            cd "$REPO_PATH"
-            git fetch origin main --quiet
-            git reset --hard origin/main --quiet
-            COMMIT_HASH=$(git rev-parse --short HEAD)
-            echo "✅ Git pulled (commit: $COMMIT_HASH)"
+            echo "✅ Build artifacts reçus (backend + frontend)"
 
             # Le .env de l'app (DB, JWT, Google, S3, Resend, PORT) n'est JAMAIS
             # touché ici — déposé une fois à la main sur le serveur, dans APP_PATH.
@@ -110,20 +175,6 @@ jobs:
             fi
             echo "✅ Variables d'environnement obligatoires présentes"
 
-            echo "🎨 Building frontend..."
-            cd "$FRONTEND_DIR"
-            npm ci --quiet
-            VITE_API_URL="https://$DOMAIN/api" \
-            VITE_GOOGLE_CLIENT_ID="$VITE_GOOGLE_CLIENT_ID" \
-            npm run build --quiet
-            echo "✅ Frontend built"
-
-            echo "🔧 Building backend..."
-            cd "$BACKEND_DIR"
-            npm ci --quiet
-            npm run build --quiet
-            echo "✅ Backend compiled"
-
             echo "🛑 Clearing old PM2 process..."
             pm2 delete "$APP_NAME" --silent || true
             sleep 1
@@ -131,10 +182,10 @@ jobs:
             echo "📤 Deploying backend..."
             mkdir -p "$APP_PATH/logs"
             rm -rf "$APP_PATH/dist" "$APP_PATH/node_modules" "$APP_PATH/sql"
-            cp -r "$BACKEND_DIR/dist" "$APP_PATH/dist"
-            cp "$BACKEND_DIR/package.json" "$APP_PATH/package.json"
-            cp "$BACKEND_DIR/package-lock.json" "$APP_PATH/package-lock.json"
-            cp -r "$BACKEND_DIR/sql" "$APP_PATH/sql" 2>/dev/null || true
+            cp -r "$STAGING_PATH/backend/dist" "$APP_PATH/dist"
+            cp "$STAGING_PATH/backend/package.json" "$APP_PATH/package.json"
+            cp "$STAGING_PATH/backend/package-lock.json" "$APP_PATH/package-lock.json"
+            cp -r "$STAGING_PATH/backend/sql" "$APP_PATH/sql" 2>/dev/null || true
             cd "$APP_PATH"
             npm install --omit=dev --quiet
             echo "✅ Backend deployed"
@@ -148,8 +199,11 @@ jobs:
               ! -name '.htaccess' ! -name '.well-known' ! -name 'php.ini' \
               ! -name '.user.ini' ! -name 'cgi-bin' ! -name '.env' \
               -exec rm -rf {} +
-            cp -r "$FRONTEND_DIR/dist"/* "$PROD_PATH/"
+            cp -r "$STAGING_PATH/frontend"/* "$PROD_PATH/"
             echo "✅ Frontend deployed"
+
+            echo "🧹 Cleaning staging..."
+            rm -rf "$STAGING_PATH"
 
             echo "🔧 Writing .htaccess (statique + reverse-proxy API -> Node)..."
             # Le .htaccess de ce dossier contient deja des directives PHP generees
@@ -235,7 +289,7 @@ jobs:
               exit 1
             fi
             echo "✅ All validations passed"
-            echo "=== ✨ Deploy complete (commit: $COMMIT_HASH) ==="
+            echo "=== ✨ Deploy complete (commit: ${COMMIT_HASH:0:7}) ==="
 
       - name: Test health endpoint
         id: health_test
@@ -283,7 +337,9 @@ jobs:
       - name: Failure - Rollback
         # UNIQUEMENT si le deploiement lui-meme a echoue. Un test public en
         # echec (DNS, proxy, domaine mal dirige) ne dit rien sur les fichiers
-        # deposes : restaurer dans ce cas detruit un deploiement reussi.
+        # deposes : restaurer dans ce cas detruit un deploiement reussi. Si
+        # c'est le build ou l'upload scp qui a echoue (avant cette etape),
+        # rien n'a encore ete touche sur le serveur : pas besoin de rollback.
         if: failure() && steps.deploy.outcome == 'failure'
         uses: appleboy/ssh-action@v1.0.3
         with:
