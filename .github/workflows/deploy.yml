@@ -60,8 +60,18 @@ jobs:
             mkdir -p "$(dirname "$BACKUP_PATH")"
             mkdir -p "$BACKUP_PATH"
             cp -r "$PROD_PATH" "$BACKUP_PATH/public_html" 2>/dev/null || true
-            cp -r "$APP_PATH" "$BACKUP_PATH/app" 2>/dev/null || true
-            echo "✅ Backup created"
+            # node_modules est exclu : sur cet hébergement mutualisé, le copier
+            # (des milliers de petits fichiers) a fait tuer la session SSH sans
+            # aucun message d'erreur (limite CPU/IO côté cPanel/CloudLinux) —
+            # trois déploiements de suite sont morts pendant cette étape. Il
+            # est régénéré par `npm install` (déploiement normal) ou par le
+            # rollback ci-dessous, donc son absence ici ne coûte rien.
+            mkdir -p "$BACKUP_PATH/app"
+            if [ -d "$APP_PATH" ]; then
+              find "$APP_PATH" -mindepth 1 -maxdepth 1 ! -name node_modules \
+                -exec cp -r {} "$BACKUP_PATH/app/" \; 2>/dev/null || true
+            fi
+            echo "✅ Backup created (node_modules exclu)"
 
             echo "📥 Fetching code..."
             if [ ! -d "$REPO_PATH/.git" ]; then
@@ -299,6 +309,10 @@ jobs:
                 -exec rm -rf {} + 2>/dev/null || true
               cp -r "$LATEST_BACKUP/public_html/"* "$PROD_PATH/" 2>/dev/null || true
               cd "$APP_PATH"
+              # La sauvegarde ne contient plus node_modules (voir l'étape de
+              # backup) : on le régénère ici avant de redémarrer.
+              echo "📦 Reinstalling dependencies..."
+              npm install --omit=dev --quiet
               pm2 delete "$APP_NAME" --silent || true
               pm2 start dist/server.js --name "$APP_NAME" --node-args="--require dotenv/config" --silent
               sleep 2
