@@ -108,10 +108,15 @@ async function searchContacts(
     f.sort === "recent" ? "c.created_at DESC, c.id DESC" : "c.last_name, c.first_name";
   const offset = (f.page - 1) * f.pageSize;
 
-  const rows = await query<Array<Omit<ContactHit, "kind">>>(
+  // c.created_at has to be in the SELECT list: MySQL rejects an ORDER BY
+  // column that isn't selected when the query is DISTINCT (the "recent"
+  // sort hit this — ER_FIELD_IN_ORDER_NOT_SELECT). It's stripped back out
+  // below so it never leaks into the API response.
+  const rows = await query<Array<Omit<ContactHit, "kind"> & { created_at: string }>>(
     `SELECT DISTINCT
        c.id, c.first_name, c.last_name, c.email, c.phone, c.gender, c.country,
        c.category, c.role_title, c.organization_id, o.name AS organization_name,
+       c.created_at,
        (SELECT COUNT(*) FROM event_contacts ec WHERE ec.contact_id = c.id) AS event_count
      FROM contacts c ${joinSql}
      WHERE ${where}
@@ -126,7 +131,7 @@ async function searchContacts(
   );
 
   return {
-    items: rows.map((r) => ({ ...r, kind: "contact" as const })),
+    items: rows.map(({ created_at, ...r }) => ({ ...r, kind: "contact" as const })),
     total: countRows[0]?.total ?? 0,
   };
 }
@@ -164,9 +169,11 @@ async function searchOrganizations(
   const orderBy = f.sort === "recent" ? "o.created_at DESC, o.id DESC" : "o.name";
   const offset = (f.page - 1) * f.pageSize;
 
-  const rows = await query<Array<Omit<OrganizationHit, "kind">>>(
+  // Same DISTINCT/ORDER BY constraint as searchContacts above: created_at
+  // must be selected to be sortable, then dropped before the response.
+  const rows = await query<Array<Omit<OrganizationHit, "kind"> & { created_at: string }>>(
     `SELECT DISTINCT
-       o.id, o.name, o.type, o.country,
+       o.id, o.name, o.type, o.country, o.created_at,
        (SELECT COUNT(*) FROM contacts c WHERE c.organization_id = o.id) AS contact_count,
        (SELECT COUNT(*) FROM event_organizations eo WHERE eo.organization_id = o.id) AS event_count
      FROM organizations o ${joinSql}
@@ -182,7 +189,7 @@ async function searchOrganizations(
   );
 
   return {
-    items: rows.map((r) => ({ ...r, kind: "organization" as const })),
+    items: rows.map(({ created_at, ...r }) => ({ ...r, kind: "organization" as const })),
     total: countRows[0]?.total ?? 0,
   };
 }
