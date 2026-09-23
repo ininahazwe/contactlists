@@ -172,28 +172,26 @@ jobs:
             # Ce n'est PAS public_html/$DOMAIN : le dossier reellement servi par
             # Apache pour contactlists.mfwa.org est public_html/contactlists.
             PROD_PATH="/home/${{ secrets.SSH_USER }}/public_html/contactlists"
-            BACKUP_PATH="/home/${{ secrets.SSH_USER }}/backups/contactlists-$(date +%Y%m%d-%H%M%S)"
 
             # Depose par les etapes "Upload ... artifacts" (scp) juste avant
             # cette etape : plus de git clone/fetch ni de build sur ce serveur.
             STAGING_PATH="/home/${{ secrets.SSH_USER }}/_deploy_staging"
 
-            echo "📦 Creating backup..."
-            mkdir -p "$(dirname "$BACKUP_PATH")"
-            mkdir -p "$BACKUP_PATH"
-            cp -r "$PROD_PATH" "$BACKUP_PATH/public_html" 2>/dev/null || true
-            # node_modules est exclu : sur cet hébergement mutualisé, le copier
-            # (des milliers de petits fichiers) a fait tuer la session SSH sans
-            # aucun message d'erreur (limite CPU/IO côté cPanel/CloudLinux) —
-            # trois déploiements de suite sont morts pendant cette étape. Il
-            # est régénéré par `npm install` (déploiement normal) ou par le
-            # rollback ci-dessous, donc son absence ici ne coûte rien.
-            mkdir -p "$BACKUP_PATH/app"
-            if [ -d "$APP_PATH" ]; then
-              find "$APP_PATH" -mindepth 1 -maxdepth 1 ! -name node_modules \
-                -exec cp -r {} "$BACKUP_PATH/app/" \; 2>/dev/null || true
-            fi
-            echo "✅ Backup created (node_modules exclu)"
+            # ─────────── Sauvegarde reduite au strict necessaire ───────────
+            # L'ancienne sauvegarde copiait tout public_html + tout le backend
+            # a chaque deploiement : des milliers de fichiers. C'est elle qui
+            # epuisait le quota de l'hebergeur — les trois derniers echecs sont
+            # tous morts (signal TERM) sur la commande SUIVANT immediatement
+            # cette copie, y compris sur un simple `pm2 delete`.
+            # Or tout le contenu sauvegarde est reproductible : le dist vient
+            # du build, le frontend aussi, node_modules du package-lock. Le
+            # seul fichier irremplacable est le .env (quelques centaines
+            # d'octets), depose a la main et jamais versionne. C'est donc le
+            # seul qu'on sauvegarde desormais.
+            echo "📦 Sauvegarde du .env..."
+            mkdir -p "/home/${{ secrets.SSH_USER }}/backups"
+            cp "$APP_PATH/.env" "/home/${{ secrets.SSH_USER }}/backups/env-$(date +%Y%m%d-%H%M%S).bak"
+            echo "✅ .env sauvegardé"
 
             # Presence des fichiers de build, du .env et des variables
             # obligatoires : deja verifie par l'etape "Pre-flight checks",
@@ -202,9 +200,12 @@ jobs:
             APP_PORT=$(grep -E '^PORT=' "$APP_PATH/.env" | cut -d '=' -f2 | tr -d '[:space:]')
             APP_PORT="${APP_PORT:-4000}"
 
-            echo "🛑 Clearing old PM2 process..."
-            pm2 delete "$APP_NAME" --silent || true
-            sleep 1
+            # L'ancien `pm2 delete` se trouvait ICI, avant la copie des
+            # fichiers : l'application etait donc arretee pendant toute la
+            # duree du deploiement, et si la session etait coupee entre les
+            # deux (ce qui est arrive), elle ne redemarrait jamais. Le
+            # redemarrage se fait desormais a la toute fin, une fois les
+            # fichiers en place.
 
             echo "📤 Deploying backend..."
             mkdir -p "$APP_PATH/logs"
@@ -266,6 +267,11 @@ jobs:
             echo "     'Setup Node.js App' (Passenger) dans cPanel à la place de PM2."
 
             echo "🚀 Starting PM2..."
+            # Le processus n'a PAS ete supprime en debut de script (voir plus
+            # haut) : on le retire maintenant, juste avant de le recreer, pour
+            # que l'indisponibilite se limite a ces quelques secondes.
+            pm2 delete "$APP_NAME" --silent || true
+            sleep 1
             # DOTENV_CONFIG_PATH + --cwd : le .env est chargé par son chemin absolu.
             # Sans ça, dotenv le cherche dans le répertoire de travail du process
             # (que PM2 place sur dist/), où il n'existe pas.
@@ -460,8 +466,14 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /home/${{ secrets.SSH_USER }}/backups || exit 0
-            ls -td contactlists-* 2>/dev/null | tail -n +6 | xargs -r rm -rf
-            echo "🧹 Backups conservés : $(ls -d contactlists-* 2>/dev/null | wc -l)"
+            # Anciennes sauvegardes completes (plus produites, mais celles
+            # deja presentes restent utiles en cas de restauration manuelle) :
+            # on en garde 3. Sauvegardes du .env : on en garde 20, elles
+            # pesent quelques centaines d'octets chacune.
+            ls -td contactlists-* 2>/dev/null | tail -n +4 | xargs -r rm -rf
+            ls -t env-*.bak 2>/dev/null | tail -n +21 | xargs -r rm -f
+            echo "🧹 Sauvegardes completes : $(ls -d contactlists-* 2>/dev/null | wc -l)"
+            echo "🧹 Sauvegardes .env      : $(ls env-*.bak 2>/dev/null | wc -l)"
 
       - name: Slack notification
         if: always() && vars.SLACK_WEBHOOK != ''
