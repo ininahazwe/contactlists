@@ -23,7 +23,7 @@ const TABS = [
 // "Users" is deliberately kept out of this list: as in the mockup, where
 // team access ("Add Manager") sits apart from the Dashboard/Payments/Reports
 // tabs, user management here is its own pill button rather than another tab
-// — see the standalone NavLink rendered after .nav below.
+// â€” see the standalone NavLink rendered after .nav below.
 const ADMIN_TABS = [{ to: "/admin/activity", label: "Activity", icon: IconTimeline, end: false }];
 
 /**
@@ -60,7 +60,7 @@ export default function Layout() {
         </nav>
 
         {user?.role === "admin" && (
-          <NavLink to="/admin/users" className="btn" title="Manage users">
+          <NavLink to="/admin/users" className="btn" title="Manage users" style={{ marginLeft: "auto" }}>
             <IconUsers />
             <span>Users</span>
           </NavLink>
