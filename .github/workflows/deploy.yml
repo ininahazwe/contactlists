@@ -14,7 +14,6 @@ concurrency:
 
 env:
   VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
-  COMMIT_HASH: ${{ github.sha }}
 
 jobs:
   deploy:
@@ -24,107 +23,60 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      # ─────────────────────────────────────────────────────────────
-      # Build sur le runner GitHub (rapide, non contraint) plutot que
-      # sur l'hebergement mutualise : c'est `npm ci`/`npm run build`
-      # (charge CPU/IO soutenue) qui declenchait la coupure de session
-      # SSH cote cPanel/CloudLinux (aucune erreur de script, juste un
-      # signal TERM externe). Seuls les fichiers compiles sont ensuite
-      # envoyes au serveur - voir les etapes scp ci-dessous.
-      # ─────────────────────────────────────────────────────────────
-
-      - name: Build frontend
-        working-directory: frontend
-        env:
-          VITE_API_URL: https://contactlists.mfwa.org/api
-          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
-        run: |
-          npm ci --quiet
-          npm run build --quiet
-
-      - name: Build backend
-        working-directory: backend
-        run: |
-          npm ci --quiet
-          npm run build --quiet
-
-      - name: Prepare deploy staging
-        run: |
-          set -e
-          mkdir -p deploy_staging/backend deploy_staging/frontend
-
-          cp -r backend/dist deploy_staging/backend/dist
-          cp backend/package.json backend/package-lock.json deploy_staging/backend/
-          if [ -d backend/sql ]; then
-            cp -r backend/sql deploy_staging/backend/sql
-          fi
-
-          cp -r frontend/dist/. deploy_staging/frontend/
-
-          echo "✅ Staging prepared:"
-          find deploy_staging -maxdepth 2
-
-      # UN SEUL transfert pour backend + frontend. Deux etapes scp visant le
-      # meme dossier cible avec `rm: true` ne fonctionnent pas : la seconde
-      # efface le dossier que la premiere vient de remplir (c'est ce qui a
-      # fait echouer le run du 22/09 avec "Fichiers de build introuvables").
-      - name: Upload build artifacts
-        id: scp_artifacts
-        uses: appleboy/scp-action@v1
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SERVER_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "deploy_staging"
-          target: "/home/${{ secrets.SSH_USER }}/_deploy_staging"
-          strip_components: 1
-          overwrite: true
-          rm: true
-
-      # Verifications sans effet de bord, DANS UNE ETAPE SEPAREE de "deploy" :
-      # si l'une echoue ici, `steps.deploy` n'est jamais execute, donc le
-      # rollback ne se declenche pas et le serveur reste exactement en l'etat.
-      # (Au run precedent, un echec de simple verification a declenche un
-      # rollback inutile alors que rien n'avait encore ete modifie.)
-      - name: Pre-flight checks
-        id: preflight
+      - name: Deploy to cPanel
+        id: deploy
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SERVER_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          timeout: 600s
+          command_timeout: 600s
+          envs: VITE_GOOGLE_CLIENT_ID
           script: |
             set -e
-            APP_PATH="/home/${{ secrets.SSH_USER }}/apps/contact-platform-backend"
-            STAGING_PATH="/home/${{ secrets.SSH_USER }}/_deploy_staging"
+            echo "=== Starting deployment ==="
+
+            # ─────────── Configuration ───────────
+            APP_NAME="contact-platform-api"
             DOMAIN="contactlists.mfwa.org"
+            GIT_URL="https://github.com/ininahazwe/contactlists.git"
 
-            # Filet de securite : si strip_components n'a pas retire le dossier
-            # racine de l'archive, tout se retrouve un cran trop profond.
-            if [ ! -d "$STAGING_PATH/backend/dist" ] && [ -d "$STAGING_PATH/deploy_staging/backend/dist" ]; then
-              echo "  ↳ dossier racine non retire par strip_components : correction"
-              mv "$STAGING_PATH/deploy_staging"/* "$STAGING_PATH/"
-              rmdir "$STAGING_PATH/deploy_staging"
-            fi
+            REPO_PATH="/home/${{ secrets.SSH_USER }}/repositories/contactlists"
+            # Le backend tourne HORS de public_html (pas exposé au web directement,
+            # seul Apache/.htaccess le proxie) : .env, node_modules et les logs n'y
+            # sont donc jamais accessibles par une URL.
+            APP_PATH="/home/${{ secrets.SSH_USER }}/apps/contact-platform-backend"
+            # Racine du domaine telle que cPanel la declare (Domains > Document Root).
+            # Ce n'est PAS public_html/$DOMAIN : le dossier reellement servi par
+            # Apache pour contactlists.mfwa.org est public_html/contactlists.
+            PROD_PATH="/home/${{ secrets.SSH_USER }}/public_html/contactlists"
+            BACKUP_PATH="/home/${{ secrets.SSH_USER }}/backups/contactlists-$(date +%Y%m%d-%H%M%S)"
 
-            ERR=0
-            [ -d "$STAGING_PATH/backend/dist" ] || { echo "❌ backend/dist manquant dans $STAGING_PATH"; ERR=1; }
-            [ -f "$STAGING_PATH/backend/package.json" ] || { echo "❌ backend/package.json manquant"; ERR=1; }
-            [ -f "$STAGING_PATH/frontend/index.html" ] || { echo "❌ frontend/index.html manquant"; ERR=1; }
-            if [ $ERR -ne 0 ]; then
-              echo "--- contenu reel de $STAGING_PATH ---"
-              find "$STAGING_PATH" -maxdepth 3 2>/dev/null || echo "(dossier inexistant)"
-              exit 1
+            BACKEND_DIR="$REPO_PATH/backend"
+            FRONTEND_DIR="$REPO_PATH/frontend"
+
+            echo "📦 Creating backup..."
+            mkdir -p "$(dirname "$BACKUP_PATH")"
+            mkdir -p "$BACKUP_PATH"
+            cp -r "$PROD_PATH" "$BACKUP_PATH/public_html" 2>/dev/null || true
+            cp -r "$APP_PATH" "$BACKUP_PATH/app" 2>/dev/null || true
+            echo "✅ Backup created"
+
+            echo "📥 Fetching code..."
+            if [ ! -d "$REPO_PATH/.git" ]; then
+              echo "  ↳ premier déploiement : clonage du dépôt"
+              mkdir -p "$(dirname "$REPO_PATH")"
+              git clone --quiet "$GIT_URL" "$REPO_PATH"
             fi
-            echo "✅ Build artifacts reçus (backend + frontend)"
+            cd "$REPO_PATH"
+            git fetch origin main --quiet
+            git reset --hard origin/main --quiet
+            COMMIT_HASH=$(git rev-parse --short HEAD)
+            echo "✅ Git pulled (commit: $COMMIT_HASH)"
 
             # Le .env de l'app (DB, JWT, Google, S3, Resend, PORT) n'est JAMAIS
-            # touché par le déploiement — déposé une fois à la main, dans APP_PATH.
+            # touché ici — déposé une fois à la main sur le serveur, dans APP_PATH.
             if [ ! -f "$APP_PATH/.env" ]; then
               echo "❌ $APP_PATH/.env introuvable — à créer à la main avant le premier déploiement"
               echo "   (DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, JWT_SECRET,"
@@ -132,9 +84,11 @@ jobs:
               echo "    CLIENT_URL=https://$DOMAIN, PORT, S3_*, RESEND_API_KEY)"
               exit 1
             fi
+            APP_PORT=$(grep -E '^PORT=' "$APP_PATH/.env" | cut -d '=' -f2 | tr -d '[:space:]')
+            APP_PORT="${APP_PORT:-4000}"
 
             # Variables obligatoires : le backend refuse de démarrer si l'une est vide.
-            # On échoue ici, avant que quoi que ce soit ne soit touché.
+            # On échoue ici, avant de toucher quoi que ce soit, plutôt qu'après le build.
             MISSING=""
             for VAR in DB_USER DB_PASSWORD DB_NAME JWT_SECRET GOOGLE_CLIENT_ID; do
               VALUE=$(grep -E "^$VAR=" "$APP_PATH/.env" | head -1 | cut -d '=' -f2- | tr -d '[:space:]')
@@ -146,79 +100,31 @@ jobs:
             fi
             echo "✅ Variables d'environnement obligatoires présentes"
 
-      - name: Deploy to cPanel
-        id: deploy
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SERVER_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          timeout: 600s
-          command_timeout: 600s
-          envs: COMMIT_HASH
-          script: |
-            set -e
-            echo "=== Starting deployment ==="
+            echo "🎨 Building frontend..."
+            cd "$FRONTEND_DIR"
+            npm ci --quiet
+            VITE_API_URL="https://$DOMAIN/api" \
+            VITE_GOOGLE_CLIENT_ID="$VITE_GOOGLE_CLIENT_ID" \
+            npm run build --quiet
+            echo "✅ Frontend built"
 
-            # ─────────── Configuration ───────────
-            APP_NAME="contact-platform-api"
-            DOMAIN="contactlists.mfwa.org"
+            echo "🔧 Building backend..."
+            cd "$BACKEND_DIR"
+            npm ci --quiet
+            npm run build --quiet
+            echo "✅ Backend compiled"
 
-            # Le backend tourne HORS de public_html (pas exposé au web directement,
-            # seul Apache/.htaccess le proxie) : .env, node_modules et les logs n'y
-            # sont donc jamais accessibles par une URL.
-            APP_PATH="/home/${{ secrets.SSH_USER }}/apps/contact-platform-backend"
-            # Racine du domaine telle que cPanel la declare (Domains > Document Root).
-            # Ce n'est PAS public_html/$DOMAIN : le dossier reellement servi par
-            # Apache pour contactlists.mfwa.org est public_html/contactlists.
-            PROD_PATH="/home/${{ secrets.SSH_USER }}/public_html/contactlists"
-
-            # Depose par les etapes "Upload ... artifacts" (scp) juste avant
-            # cette etape : plus de git clone/fetch ni de build sur ce serveur.
-            STAGING_PATH="/home/${{ secrets.SSH_USER }}/_deploy_staging"
-
-            # ─────────── Sauvegarde reduite au strict necessaire ───────────
-            # L'ancienne sauvegarde copiait tout public_html + tout le backend
-            # a chaque deploiement : des milliers de fichiers. C'est elle qui
-            # epuisait le quota de l'hebergeur — les trois derniers echecs sont
-            # tous morts (signal TERM) sur la commande SUIVANT immediatement
-            # cette copie, y compris sur un simple `pm2 delete`.
-            # Or tout le contenu sauvegarde est reproductible : le dist vient
-            # du build, le frontend aussi, node_modules du package-lock. Le
-            # seul fichier irremplacable est le .env (quelques centaines
-            # d'octets), depose a la main et jamais versionne. C'est donc le
-            # seul qu'on sauvegarde desormais.
-            echo "📦 Sauvegarde du .env..."
-            mkdir -p "/home/${{ secrets.SSH_USER }}/backups"
-            cp "$APP_PATH/.env" "/home/${{ secrets.SSH_USER }}/backups/env-$(date +%Y%m%d-%H%M%S).bak"
-            echo "✅ .env sauvegardé"
-
-            # Presence des fichiers de build, du .env et des variables
-            # obligatoires : deja verifie par l'etape "Pre-flight checks",
-            # qui s'execute avant celle-ci et n'a aucun effet de bord.
-            # On ne relit ici que le port d'ecoute.
-            APP_PORT=$(grep -E '^PORT=' "$APP_PATH/.env" | cut -d '=' -f2 | tr -d '[:space:]')
-            APP_PORT="${APP_PORT:-4000}"
-
-            # L'ancien `pm2 delete` se trouvait ICI, avant la copie des
-            # fichiers : l'application etait donc arretee pendant toute la
-            # duree du deploiement, et si la session etait coupee entre les
-            # deux (ce qui est arrive), elle ne redemarrait jamais. Le
-            # redemarrage se fait desormais a la toute fin, une fois les
-            # fichiers en place.
+            echo "🛑 Clearing old PM2 process..."
+            pm2 delete "$APP_NAME" --silent || true
+            sleep 1
 
             echo "📤 Deploying backend..."
             mkdir -p "$APP_PATH/logs"
-            # node_modules n'est volontairement PAS supprime : `npm install`
-            # ci-dessous ne pose alors que le delta, au lieu de tout
-            # reinstaller a chaque deploiement. C'est plus rapide, et surtout
-            # si la session SSH est coupee en cours de route, le backend garde
-            # des dependances utilisables au lieu de se retrouver sans rien.
-            rm -rf "$APP_PATH/dist" "$APP_PATH/sql"
-            cp -r "$STAGING_PATH/backend/dist" "$APP_PATH/dist"
-            cp "$STAGING_PATH/backend/package.json" "$APP_PATH/package.json"
-            cp "$STAGING_PATH/backend/package-lock.json" "$APP_PATH/package-lock.json"
-            cp -r "$STAGING_PATH/backend/sql" "$APP_PATH/sql" 2>/dev/null || true
+            rm -rf "$APP_PATH/dist" "$APP_PATH/node_modules" "$APP_PATH/sql"
+            cp -r "$BACKEND_DIR/dist" "$APP_PATH/dist"
+            cp "$BACKEND_DIR/package.json" "$APP_PATH/package.json"
+            cp "$BACKEND_DIR/package-lock.json" "$APP_PATH/package-lock.json"
+            cp -r "$BACKEND_DIR/sql" "$APP_PATH/sql" 2>/dev/null || true
             cd "$APP_PATH"
             npm install --omit=dev --quiet
             echo "✅ Backend deployed"
@@ -232,11 +138,8 @@ jobs:
               ! -name '.htaccess' ! -name '.well-known' ! -name 'php.ini' \
               ! -name '.user.ini' ! -name 'cgi-bin' ! -name '.env' \
               -exec rm -rf {} +
-            cp -r "$STAGING_PATH/frontend"/* "$PROD_PATH/"
+            cp -r "$FRONTEND_DIR/dist"/* "$PROD_PATH/"
             echo "✅ Frontend deployed"
-
-            echo "🧹 Cleaning staging..."
-            rm -rf "$STAGING_PATH"
 
             echo "🔧 Writing .htaccess (statique + reverse-proxy API -> Node)..."
             # Le .htaccess de ce dossier contient deja des directives PHP generees
@@ -267,11 +170,6 @@ jobs:
             echo "     'Setup Node.js App' (Passenger) dans cPanel à la place de PM2."
 
             echo "🚀 Starting PM2..."
-            # Le processus n'a PAS ete supprime en debut de script (voir plus
-            # haut) : on le retire maintenant, juste avant de le recreer, pour
-            # que l'indisponibilite se limite a ces quelques secondes.
-            pm2 delete "$APP_NAME" --silent || true
-            sleep 1
             # DOTENV_CONFIG_PATH + --cwd : le .env est chargé par son chemin absolu.
             # Sans ça, dotenv le cherche dans le répertoire de travail du process
             # (que PM2 place sur dist/), où il n'existe pas.
@@ -327,7 +225,7 @@ jobs:
               exit 1
             fi
             echo "✅ All validations passed"
-            echo "=== ✨ Deploy complete (commit: ${COMMIT_HASH:0:7}) ==="
+            echo "=== ✨ Deploy complete (commit: $COMMIT_HASH) ==="
 
       - name: Test health endpoint
         id: health_test
@@ -372,51 +270,11 @@ jobs:
           echo "App: https://contactlists.mfwa.org"
           echo "Commit: ${{ github.sha }}"
 
-      - name: Failure - Diagnostic (aucune restauration automatique)
-        # Le rollback automatique a ete RETIRE. Sur cet hebergement mutualise,
-        # il a ete interrompu deux fois en plein `rm -rf` + `cp -r`, laissant
-        # le backend entierement supprime et PM2 vide : deux pannes de
-        # production, et pas une seule restauration menee a bien. Cette etape
-        # ne fait plus que decrire l'etat du serveur. Si une restauration est
-        # necessaire, elle se fait a la main, depuis les sauvegardes listees
-        # ci-dessous, en sachant ce qu'on restaure.
+      - name: Failure - Rollback
+        # UNIQUEMENT si le deploiement lui-meme a echoue. Un test public en
+        # echec (DNS, proxy, domaine mal dirige) ne dit rien sur les fichiers
+        # deposes : restaurer dans ce cas detruit un deploiement reussi.
         if: failure() && steps.deploy.outcome == 'failure'
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SERVER_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            APP_PATH="/home/${{ secrets.SSH_USER }}/apps/contact-platform-backend"
-            PROD_PATH="/home/${{ secrets.SSH_USER }}/public_html/contactlists"
-
-            echo "=== Etat du serveur apres echec ==="
-            echo "--- backend ($APP_PATH) ---"
-            ls -la "$APP_PATH" 2>/dev/null || echo "  dossier ABSENT"
-            [ -f "$APP_PATH/dist/server.js" ] && echo "  dist/server.js : present" || echo "  dist/server.js : ABSENT"
-            [ -d "$APP_PATH/node_modules" ] && echo "  node_modules   : present" || echo "  node_modules   : ABSENT"
-            [ -f "$APP_PATH/.env" ]          && echo "  .env           : present" || echo "  .env           : ABSENT"
-
-            echo "--- frontend ($PROD_PATH) ---"
-            [ -f "$PROD_PATH/index.html" ] && echo "  index.html : present" || echo "  index.html : ABSENT"
-
-            echo "--- pm2 ---"
-            pm2 status || true
-
-            echo "--- sauvegardes disponibles (5 plus recentes) ---"
-            for B in $(ls -td /home/${{ secrets.SSH_USER }}/backups/contactlists-* 2>/dev/null | head -5); do
-              echo "  $B"
-              echo "     app/dist=$([ -d "$B/app/dist" ] && echo oui || echo non)" \
-                   "app/.env=$([ -f "$B/app/.env" ] && echo oui || echo non)" \
-                   "app/node_modules=$([ -d "$B/app/node_modules" ] && echo oui || echo non)" \
-                   "front=$([ -f "$B/public_html/index.html" ] && echo oui || echo non)"
-            done
-
-      - name: Ensure API is running
-        # Filet de securite, execute quoi qu'il arrive : on ne laisse jamais le
-        # site sans backend. Ne supprime rien et ne restaure rien — relance
-        # seulement le processus s'il n'est pas en ligne.
-        if: always()
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -425,36 +283,30 @@ jobs:
           script: |
             APP_NAME="contact-platform-api"
             APP_PATH="/home/${{ secrets.SSH_USER }}/apps/contact-platform-backend"
-
-            STATUS=$(pm2 jlist 2>/dev/null | node -e "
-            const fs = require('fs');
-            let list = [];
-            try { list = JSON.parse(fs.readFileSync(0, 'utf-8')); } catch (e) {}
-            const app = list.find(p => p.name === '$APP_NAME');
-            console.log(app ? app.pm2_env.status : 'missing');
-            " 2>/dev/null || echo "missing")
-            echo "PM2 : $STATUS"
-
-            if [ "$STATUS" = "online" ]; then
-              echo "✅ API en ligne"
-            elif [ -f "$APP_PATH/dist/server.js" ]; then
-              echo "⚠️  API arretee — tentative de relance"
-              mkdir -p "$APP_PATH/logs"
+            PROD_PATH="/home/${{ secrets.SSH_USER }}/public_html/contactlists"
+            LATEST_BACKUP=$(ls -td /home/${{ secrets.SSH_USER }}/backups/contactlists-* 2>/dev/null | head -1)
+            # On ne restaure QUE si le backup contient un deploiement precedent
+            # COMPLET (backend compile ET frontend construit). Un backup partiel
+            # vient d'un etat deja casse : le restaurer aggrave la situation.
+            if [ -d "$LATEST_BACKUP/app/dist" ] && [ -f "$LATEST_BACKUP/public_html/index.html" ]; then
+              echo "🔄 Rolling back to $LATEST_BACKUP"
+              pm2 stop "$APP_NAME" --silent || true
+              rm -rf "$APP_PATH"
+              cp -r "$LATEST_BACKUP/app" "$APP_PATH" 2>/dev/null || true
+              find "$PROD_PATH" -mindepth 1 -maxdepth 1 \
+                ! -name '.htaccess' ! -name '.well-known' ! -name 'php.ini' \
+                ! -name '.user.ini' ! -name 'cgi-bin' ! -name '.env' \
+                -exec rm -rf {} + 2>/dev/null || true
+              cp -r "$LATEST_BACKUP/public_html/"* "$PROD_PATH/" 2>/dev/null || true
+              cd "$APP_PATH"
               pm2 delete "$APP_NAME" --silent || true
-              DOTENV_CONFIG_PATH="$APP_PATH/.env" pm2 start "$APP_PATH/dist/server.js" \
-                --name "$APP_NAME" \
-                --cwd "$APP_PATH" \
-                --error "$APP_PATH/logs/error.log" \
-                --output "$APP_PATH/logs/out.log" \
-                --node-args="--require dotenv/config" \
-                --update-env \
-                --silent
-              sleep 4
+              pm2 start dist/server.js --name "$APP_NAME" --node-args="--require dotenv/config" --silent
+              sleep 2
               pm2 save --silent
-              pm2 status
+              echo "✅ Rollback complete"
             else
-              echo "❌ $APP_PATH/dist/server.js absent : relance impossible."
-              echo "   Restauration manuelle necessaire depuis /home/${{ secrets.SSH_USER }}/backups/"
+              echo "⚠️ Pas de déploiement précédent à restaurer — état actuel préservé tel quel"
+              echo "   (les fichiers déposés par ce run restent en place pour diagnostic)"
             fi
 
       - name: Prune old backups
@@ -466,14 +318,8 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /home/${{ secrets.SSH_USER }}/backups || exit 0
-            # Anciennes sauvegardes completes (plus produites, mais celles
-            # deja presentes restent utiles en cas de restauration manuelle) :
-            # on en garde 3. Sauvegardes du .env : on en garde 20, elles
-            # pesent quelques centaines d'octets chacune.
-            ls -td contactlists-* 2>/dev/null | tail -n +4 | xargs -r rm -rf
-            ls -t env-*.bak 2>/dev/null | tail -n +21 | xargs -r rm -f
-            echo "🧹 Sauvegardes completes : $(ls -d contactlists-* 2>/dev/null | wc -l)"
-            echo "🧹 Sauvegardes .env      : $(ls env-*.bak 2>/dev/null | wc -l)"
+            ls -td contactlists-* 2>/dev/null | tail -n +6 | xargs -r rm -rf
+            echo "🧹 Backups conservés : $(ls -d contactlists-* 2>/dev/null | wc -l)"
 
       - name: Slack notification
         if: always() && vars.SLACK_WEBHOOK != ''
