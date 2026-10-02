@@ -166,3 +166,10 @@ export const IconDownload = svg(
     <path d="M4.4 15.6v3.2c0 1 .8 1.8 1.8 1.8h11.6c1 0 1.8-.8 1.8-1.8v-3.2" />
   </>
 );
+
+export const IconLock = svg(
+  <>
+    <rect x="5.2" y="11" width="13.6" height="9" rx="1.8" />
+    <path d="M8 11V7.6a4 4 0 0 1 8 0V11" />
+  </>
+);

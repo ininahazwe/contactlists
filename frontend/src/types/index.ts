@@ -215,6 +215,107 @@ export interface Paginated<T> {
   pageSize: number;
 }
 
+/* ---------- staff ---------- */
+
+export type StaffEmploymentType = "full_time" | "part_time" | "contract" | "intern";
+export type StaffStatus = "active" | "former";
+export type StaffEngagementType = "training" | "meeting" | "conference" | "travel";
+
+export const STAFF_EMPLOYMENT_TYPE_LABELS: Record<StaffEmploymentType, string> = {
+  full_time: "Full time",
+  part_time: "Part time",
+  contract: "Contract",
+  intern: "Intern",
+};
+
+export const STAFF_STATUS_LABELS: Record<StaffStatus, string> = {
+  active: "Active",
+  former: "Former",
+};
+
+export const STAFF_ENGAGEMENT_TYPE_LABELS: Record<StaffEngagementType, string> = {
+  training: "Training",
+  meeting: "Meeting",
+  conference: "Conference",
+  travel: "Travel",
+};
+
+/** Mirrors the `staff` table as returned by the API -- snake_case, no client-side mapping. */
+export interface StaffMember {
+  id: number;
+  full_name: string;
+  job_title: string | null;
+  department: string | null;
+  employment_type: StaffEmploymentType;
+  nationality: string | null;
+  year_joined: number | null;
+  recruited_as: string | null;
+  status: StaffStatus;
+  exit_date: string | null;
+  cv_updated: number | null;
+  employee_info_sheet: number | null;
+  total_years_served_raw: string | null;
+  training_opportunities_raw: string | null;
+  travel_opportunities_raw: string | null;
+  created_by: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StaffRoleHistoryEntry {
+  year_from: number | null;
+  year_to: number | null;
+  role_title: string;
+  sort_order: number;
+}
+
+export interface StaffEngagementEntry {
+  id: number;
+  engagement_type: StaffEngagementType;
+  country: string | null;
+  place: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  date_text: string | null;
+  purpose: string | null;
+  role_in_engagement: string | null;
+  /** "manual" for an entry added from the UI, the source sheet name for an imported one. */
+  source_sheet: string | null;
+}
+
+export interface StaffWelfareEntry {
+  id: number;
+  event_name: string;
+  event_date: string | null;
+  amount: string | null;
+  currency: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface StaffDetail {
+  staff: StaffMember;
+  roleHistory: StaffRoleHistoryEntry[];
+  engagements: StaffEngagementEntry[];
+}
+
+/** staff_sensitive -- always fetched separately, never part of StaffDetail. */
+export interface StaffSensitive {
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  welfare_notes: string | null;
+  exit_terms_notes: string | null;
+  exit_interview_url: string | null;
+}
+
+export interface StaffFacets {
+  totals: { total: number; active: number; former: number };
+  employmentTypes: { value: StaffEmploymentType; count: number }[];
+  departments: { value: string; count: number }[];
+  countries: { value: string; count: number }[];
+  engagementTypes: { value: StaffEngagementType; count: number }[];
+}
+
 /* ---------- bulk import ---------- */
 
 export interface ImportRowResult {
@@ -230,6 +331,27 @@ export interface ImportSummary {
   existing: number;
   errors: number;
   results: ImportRowResult[];
+}
+
+/* ---------- staff import ---------- */
+
+export interface StaffImportCounts {
+  staffCreated: number;
+  roleHistoryCreated: number;
+  engagementsCreated: number;
+  engagementsSkipped: number;
+  roleHistoryFlagged: number;
+}
+
+export interface StaffFlaggedRoleHistory {
+  sourceRow: number;
+  roleTitle: string;
+  note: string;
+}
+
+export interface StaffImportSummary {
+  counts: StaffImportCounts;
+  flaggedRoleHistory: StaffFlaggedRoleHistory[];
 }
 
 export interface ManagedUser {

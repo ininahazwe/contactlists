@@ -4,6 +4,8 @@ import {
   EVENT_TYPE_LABELS,
   EventHit,
   OrganizationHit,
+  STAFF_EMPLOYMENT_TYPE_LABELS,
+  StaffMember,
 } from "../types";
 import { formatDate, personName } from "../utils/format";
 import Avatar from "./Avatar";
@@ -181,6 +183,32 @@ export function EventRow({ e, onClick }: { e: EventHit; onClick: () => void }) {
       </span>
       <span className="row-cell row-cell--sm">
         <span className="badge badge--lime">{e.contact_count} part.</span>
+      </span>
+      <span className="row-go">
+        <IconArrowUpRight />
+      </span>
+    </button>
+  );
+}
+
+
+export function StaffRow({ s, onClick }: { s: StaffMember; onClick: () => void }) {
+  return (
+    <button className="row" onClick={onClick} title={`Open ${s.full_name}'s profile`}>
+      <Avatar name={s.full_name} tone="ink" />
+      <span className="row-main">
+        <span className="row-name">{s.full_name}</span>
+        <span className="row-sub">{s.job_title ?? "—"}</span>
+      </span>
+      <span className="row-cell">{s.department ?? "—"}</span>
+      <span className="row-cell row-cell--sm">{s.nationality ?? "—"}</span>
+      <span className="row-cell row-cell--sm">
+        {STAFF_EMPLOYMENT_TYPE_LABELS[s.employment_type] ?? s.employment_type}
+      </span>
+      <span className="row-cell row-cell--sm">
+        <span className={`badge${s.status === "former" ? "" : " badge--lime"}`}>
+          {s.status === "active" ? "Active" : "Former"}
+        </span>
       </span>
       <span className="row-go">
         <IconArrowUpRight />

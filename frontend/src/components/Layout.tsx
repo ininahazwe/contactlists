@@ -17,6 +17,10 @@ const TABS = [
   { to: "/organizations", label: "Organizations", icon: IconBuilding, end: false },
 ];
 
+// Admin + editor, not read_only -- mirrors the backend's
+// requireRole("admin", "editor") on /api/staff (see StaffRoute).
+const STAFF_TABS = [{ to: "/staff", label: "Staff", icon: IconUsers, end: false }];
+
 // Only shown to admins. The screen itself is guarded, and so is the API
 // behind it: hiding the tab just keeps the nav honest about what a given
 // person can actually open.
@@ -46,7 +50,11 @@ export default function Layout() {
         </NavLink>
 
         <nav className="nav">
-          {[...TABS, ...(user?.role === "admin" ? ADMIN_TABS : [])].map((t) => (
+          {[
+            ...TABS,
+            ...(user?.role === "admin" || user?.role === "editor" ? STAFF_TABS : []),
+            ...(user?.role === "admin" ? ADMIN_TABS : []),
+          ].map((t) => (
             <NavLink
               key={t.to}
               to={t.to}
