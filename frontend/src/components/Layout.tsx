@@ -8,7 +8,7 @@ import {
   IconHome,
   IconLogout,
   IconPlus,
-  IconSearch,
+  /*IconSearch,*/
   IconTimeline,
   IconUsers,
 } from "./Icons";
@@ -22,7 +22,7 @@ const TABS = [
 // requireRole("admin", "editor") on /api/staff (see StaffRoute).
 const STAFF_TABS = [
   { to: "/staff", label: "Staff", icon: IconUsers, end: false },
-  { to: "/staff/search", label: "Search", icon: IconSearch, end: false },
+  /*{ to: "/staff/search", label: "Search", icon: IconSearch, end: false },*/
 ];
 
 // Only shown to admins. The screen itself is guarded, and so is the API

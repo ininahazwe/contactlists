@@ -434,6 +434,10 @@ label {
 /* ============================================================
    CARTES / KPI
    ============================================================ */
+section.card{
+  margin-top: 10px;
+}
+
 .card {
   background: var(--card);
   border-radius: var(--r);
@@ -900,10 +904,17 @@ label {
 }
 
 /* --- vue liste --- */
+.grid{
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
 .list {
   background: var(--card);
   border-radius: var(--r);
   overflow: hidden;
+  margin-top: 10px;
+  margin-bottom: 10px;
 }
 .row {
   width: 100%;
