@@ -15,6 +15,7 @@ import OrganizationsPage from "./pages/OrganizationsPage";
 import SearchPage from "./pages/SearchPage";
 import StaffPage from "./pages/StaffPage";
 import StaffFormPage from "./pages/StaffFormPage";
+import StaffJobTitlesPage from "./pages/StaffJobTitlesPage";
 
 export default function App() {
   return (
@@ -40,6 +41,7 @@ export default function App() {
                 <Route path="/admin/users" element={<AdminUsersPage />} />
                 <Route path="/admin/activity" element={<AdminActivityPage />} />
                 <Route path="/staff/import" element={<ImportStaffPage />} />
+                <Route path="/staff/job-titles" element={<StaffJobTitlesPage />} />
                 <Route path="/staff/new" element={<StaffFormPage />} />
                 <Route path="/staff/:id/edit" element={<StaffFormPage />} />
               </Route>

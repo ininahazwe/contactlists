@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS staff_welfare (
   event_name  VARCHAR(255) NOT NULL,  -- ex: "Father's funeral", "Naming ceremony", "Wedding gift"
   event_date  DATE,
   amount      DECIMAL(10, 2),         -- même type que participations.per_diem (001_init.sql)
-  currency    VARCHAR(10) DEFAULT 'USD',
+  currency    VARCHAR(10) DEFAULT 'GHC',
   notes       VARCHAR(500),
   created_by  INT NOT NULL,
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

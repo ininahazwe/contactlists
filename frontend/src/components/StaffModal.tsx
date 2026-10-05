@@ -80,7 +80,6 @@ const emptyWelfareForm: WelfareFormState = {
   eventName: "",
   eventDate: "",
   amount: "",
-  currency: "USD",
   notes: "",
 };
 
@@ -374,7 +373,7 @@ export default function StaffModal({ staffId, onClose }: Props) {
                 </p>
               )}
               {data.roleHistory.map((r, i) => (
-                <div key={i} className="row" style={{ cursor: "default", gridTemplateColumns: "auto 1fr" }}>
+                <div key={i} className="row row-grid" style={{ cursor: "default", gridTemplateColumns: "auto 1fr" }}>
                   <span className="badge">
                     {r.year_from ? (r.year_to && r.year_to !== r.year_from ? `${r.year_from}–${r.year_to}` : r.year_from) : "—"}
                   </span>
@@ -508,10 +507,10 @@ export default function StaffModal({ staffId, onClose }: Props) {
               {data.engagements.map((e) => (
                 <div
                   key={e.id}
-                  className="row"
+                  className="row row-grid"
                   style={{
                     cursor: "default",
-                    gridTemplateColumns: isAdmin ? "auto 1fr auto auto" : "auto 1fr auto",
+                    gridTemplateColumns: "auto 1fr auto auto",
                   }}
                 >
                   <span className="badge">
@@ -733,7 +732,7 @@ export default function StaffModal({ staffId, onClose }: Props) {
                           {welfare?.map((w) => (
                             <div
                               key={w.id}
-                              className="row"
+                              className="row row-grid"
                               style={{ cursor: "default", gridTemplateColumns: "1fr auto auto" }}
                             >
                               <span className="row-sub">

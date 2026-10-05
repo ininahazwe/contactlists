@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS event_contacts (
   contact_id    INT NOT NULL,
   role          VARCHAR(150),           -- ex: participant, facilitateur, intervenant
   per_diem      DECIMAL(10, 2),
-  currency      VARCHAR(10) DEFAULT 'USD',
+  currency      VARCHAR(10) DEFAULT 'GHC',
   notes         TEXT,
   created_by    INT NOT NULL,
   created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

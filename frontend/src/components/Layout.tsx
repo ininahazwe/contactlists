@@ -28,7 +28,10 @@ const STAFF_TABS = [{ to: "/staff", label: "Staff", icon: IconUsers, end: false 
 // team access ("Add Manager") sits apart from the Dashboard/Payments/Reports
 // tabs, user management here is its own pill button rather than another tab
 // â€” see the standalone NavLink rendered after .nav below.
-const ADMIN_TABS = [{ to: "/admin/activity", label: "Activity", icon: IconTimeline, end: false }];
+const ADMIN_TABS = [
+  { to: "/admin/activity", label: "Activity", icon: IconTimeline, end: false },
+  { to: "/staff/job-titles", label: "Job Titles", icon: IconUsers, end: false },
+];
 
 /**
  * App shell: top bar (brand, tabs, profile) and left icon rail, as in

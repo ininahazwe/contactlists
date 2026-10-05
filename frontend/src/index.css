@@ -113,6 +113,7 @@ label {
 
 .muted {
   color: var(--grey);
+  padding-left: 20px;
 }
 
 .error-text {
@@ -919,6 +920,10 @@ label {
 }
 .row:hover {
   background: #fafafc;
+}
+.row-grid {
+  display: grid;
+  align-items: center;
 }
 .row-main {
   flex: 1;

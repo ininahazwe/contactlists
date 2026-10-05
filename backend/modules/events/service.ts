@@ -203,7 +203,7 @@ export async function addContact(
       input.contactId,
       input.role ?? null,
       input.perDiem ?? null,
-      input.currency ?? "USD",
+      input.currency ?? "GHC",
       input.notes ?? null,
       createdBy,
     ]

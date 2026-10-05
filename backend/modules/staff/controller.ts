@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import multer from "multer";
 import { AppError } from "../../utils/AppError";
+import { query } from "../../db/pool";
 import { recordAudit, recordRead } from "../../middleware/auditLogger";
 import {
   createEngagementSchema,
@@ -20,6 +21,22 @@ const upload = multer({
 
 /** Multipart middleware for the single "file" field on the import endpoint. */
 export const importUpload = upload.single("file");
+
+
+/** Valider que le job_title existe dans job_titles.canonical_title */
+async function validateJobTitle(jobTitle: string | undefined): Promise<void> {
+  if (!jobTitle) return; // optionnel
+  const result = await query<{ id: number }[]>(
+    "SELECT id FROM job_titles WHERE canonical_title = ? LIMIT 1",
+    [jobTitle]
+  );
+  if (result.length === 0) {
+    throw new AppError(
+      `Job title "${jobTitle}" not found. Use a canonical title from the job_titles table.`,
+      400
+    );
+  }
+}
 
 export async function list(req: Request, res: Response): Promise<void> {
   const filters = listStaffQuerySchema.parse(req.query);
@@ -47,6 +64,7 @@ export async function getOne(req: Request, res: Response): Promise<void> {
 export async function create(req: Request, res: Response): Promise<void> {
   if (!req.user) throw AppError.unauthorized();
   const input = createStaffSchema.parse(req.body);
+  await validateJobTitle(input.jobTitle);
   const staff = await service.createStaff(input, req.user.id);
 
   await recordAudit({
@@ -220,6 +238,169 @@ export async function updateSensitive(req: Request, res: Response): Promise<void
   });
 
   res.json({ sensitive });
+}
+
+export async function getJobTitleCategory(req: Request, res: Response): Promise<void> {
+  const title = req.query.title as string;
+  if (!title) throw new AppError("Missing query param: title", 400);
+
+  const result = await query<{ category: string }[]>(
+    "SELECT category FROM job_titles WHERE canonical_title = ?",
+    [title]
+  );
+
+  if (result.length === 0) {
+    res.json({ category: null });
+    return;
+  }
+
+  res.json({ category: result[0].category });
+}
+
+
+// ============================================================
+// JOB TITLES MANAGEMENT
+// ============================================================
+
+export async function listJobTitles(req: Request, res: Response): Promise<void> {
+  const q = (req.query.q ?? "").toString().trim();
+  
+  let sql = "SELECT id, canonical_title, category, seniority_level FROM job_titles";
+  const params: unknown[] = [];
+  
+  if (q) {
+    sql += " WHERE canonical_title LIKE ?";
+    params.push(`%${q}%`);
+  }
+  
+  sql += " ORDER BY category, seniority_level, canonical_title LIMIT 50";
+  
+  const titles = await query<
+    { id: number; canonical_title: string; category: string; seniority_level: string | null }[]
+  >(sql, params);
+  
+  res.json({ titles });
+}
+
+export async function getJobTitleDetail(req: Request, res: Response): Promise<void> {
+  const id = Number(req.params.id);
+  
+  const titleResult = await query<
+    { id: number; canonical_title: string; category: string; seniority_level: string | null; description: string | null }[]
+  >("SELECT id, canonical_title, category, seniority_level, description FROM job_titles WHERE id = ?", [id]);
+  
+  if (titleResult.length === 0) throw AppError.notFound("Job title");
+  
+  const variants = await query<{ id: number; variant_title: string }[]>(
+    "SELECT id, variant_title FROM job_title_variants WHERE job_title_id = ? ORDER BY variant_title",
+    [id]
+  );
+  
+  const staffCount = await query<{ count: number }[]>(
+    "SELECT COUNT(*) as count FROM staff WHERE job_title = ?",
+    [titleResult[0].canonical_title]
+  );
+  
+  res.json({
+    title: titleResult[0],
+    variants,
+    staffCount: staffCount[0]?.count ?? 0,
+  });
+}
+
+export async function createJobTitle(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw AppError.unauthorized();
+  
+  const { canonicalTitle, category, seniorityLevel, description } = req.body;
+  
+  if (!canonicalTitle || !category) {
+    throw new AppError("Missing required fields: canonicalTitle, category", 400);
+  }
+  
+  const result = await query<{ insertId: number }>(
+    `INSERT INTO job_titles (canonical_title, category, seniority_level, description, created_by)
+     VALUES (?, ?, ?, ?, ?)`,
+    [canonicalTitle, category, seniorityLevel || null, description || null, req.user.id]
+  );
+  
+  const newTitle = await query<
+    { id: number; canonical_title: string; category: string; seniority_level: string | null; description: string | null }[]
+  >("SELECT id, canonical_title, category, seniority_level, description FROM job_titles WHERE id = ?", [
+    result.insertId,
+  ]);
+  
+  res.status(201).json({ title: newTitle[0] });
+}
+
+export async function updateJobTitle(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw AppError.unauthorized();
+  
+  const id = Number(req.params.id);
+  const { canonicalTitle, category, seniorityLevel, description } = req.body;
+  
+  const fields: string[] = [];
+  const params: unknown[] = [];
+  
+  if (canonicalTitle !== undefined) {
+    fields.push("canonical_title = ?");
+    params.push(canonicalTitle);
+  }
+  if (category !== undefined) {
+    fields.push("category = ?");
+    params.push(category);
+  }
+  if (seniorityLevel !== undefined) {
+    fields.push("seniority_level = ?");
+    params.push(seniorityLevel);
+  }
+  if (description !== undefined) {
+    fields.push("description = ?");
+    params.push(description);
+  }
+  
+  if (fields.length === 0) {
+    throw new AppError("No fields to update", 400);
+  }
+  
+  fields.push("updated_by = ?");
+  params.push(req.user.id);
+  fields.push("updated_at = CURRENT_TIMESTAMP");
+  
+  params.push(id);
+  
+  await query(`UPDATE job_titles SET ${fields.join(", ")} WHERE id = ?`, params);
+  
+  const updated = await query<
+    { id: number; canonical_title: string; category: string; seniority_level: string | null; description: string | null }[]
+  >("SELECT id, canonical_title, category, seniority_level, description FROM job_titles WHERE id = ?", [id]);
+  
+  res.json({ title: updated[0] });
+}
+
+export async function addJobTitleVariant(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw AppError.unauthorized();
+  
+  const jobTitleId = Number(req.params.id);
+  const { variantTitle } = req.body;
+  
+  if (!variantTitle) {
+    throw new AppError("Missing required field: variantTitle", 400);
+  }
+  
+  await query(
+    `INSERT INTO job_title_variants (job_title_id, variant_title, created_by) VALUES (?, ?, ?)`,
+    [jobTitleId, variantTitle, req.user.id]
+  );
+  
+  res.status(201).json({ success: true });
+}
+
+export async function removeJobTitleVariant(req: Request, res: Response): Promise<void> {
+  const variantId = Number(req.params.variantId);
+  
+  await query("DELETE FROM job_title_variants WHERE id = ?", [variantId]);
+  
+  res.json({ success: true });
 }
 
 export async function importStaff(req: Request, res: Response): Promise<void> {

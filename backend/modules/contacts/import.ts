@@ -287,7 +287,7 @@ export async function importContactsFromWorkbook(
             contactId,
             row.eventRole?.trim() || null,
             Number.isFinite(perDiemValue) ? perDiemValue : null,
-            row.currency?.trim() || (perDiemValue ? "USD" : null),
+            row.currency?.trim() || (perDiemValue ? "GHC" : null),
             row.notes?.trim() || null,
             createdBy,
           ]
@@ -343,7 +343,7 @@ const TEMPLATE_EXAMPLE_ROW = [
   "",
   "Trainer",
   "150",
-  "USD",
+  "GHC",
 ];
 
 export async function buildTemplateWorkbook(): Promise<Buffer> {

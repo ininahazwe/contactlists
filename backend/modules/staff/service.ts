@@ -225,7 +225,25 @@ export async function deleteEngagement(staffId: number, engagementId: number): P
   await query("DELETE FROM staff_engagements WHERE id = ?", [engagementId]);
 }
 
+
+/** Récupérer le department depuis la category du job_title */
+async function getDepartmentFromJobTitle(jobTitle: string | null | undefined): Promise<string | null> {
+  if (!jobTitle) return null;
+  try {
+    const result = await query<{ category: string }[]>(
+      "SELECT category FROM job_titles WHERE canonical_title = ?",
+      [jobTitle]
+    );
+    return result.length > 0 ? result[0].category : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function createStaff(input: CreateStaffInput, createdBy: number): Promise<StaffRow> {
+  // Calculer department depuis job_title (de job_titles.category)
+  const department = (await getDepartmentFromJobTitle(input.jobTitle)) ?? undefined;
+
   const result = await query<{ insertId: number }>(
     `INSERT INTO staff
       (full_name, job_title, department, employment_type, nationality, year_joined,
@@ -234,7 +252,7 @@ export async function createStaff(input: CreateStaffInput, createdBy: number): P
     [
       input.fullName,
       input.jobTitle ?? null,
-      input.department ?? null,
+      department,
       input.employmentType,
       input.nationality ?? null,
       input.yearJoined ?? null,
@@ -255,10 +273,26 @@ export async function updateStaff(
 ): Promise<{ before: StaffRow; after: StaffRow }> {
   const before = await getStaffById(id);
 
+  // Si job_title change, créer une entrée dans role_history
+  if (input.jobTitle !== undefined && input.jobTitle !== before.job_title) {
+    const currentYear = new Date().getFullYear();
+    await query(
+      `INSERT INTO staff_role_history (staff_id, role_title, year_from, tracked_from_job_titles, created_by)
+       VALUES (?, ?, ?, TRUE, ?)`,
+      [id, input.jobTitle || null, currentYear, before.created_by]
+    );
+  }
+
+  // Si jobTitle est fourni, calculer automatiquement department
+  let department = input.department;
+  if (input.jobTitle !== undefined) {
+    department = (await getDepartmentFromJobTitle(input.jobTitle)) ?? undefined;
+  }
+
   const map: Record<string, unknown> = {
     full_name: input.fullName,
     job_title: input.jobTitle,
-    department: input.department,
+    department,
     employment_type: input.employmentType,
     nationality: input.nationality,
     year_joined: input.yearJoined,

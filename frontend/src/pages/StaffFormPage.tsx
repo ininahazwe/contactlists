@@ -52,6 +52,13 @@ export default function StaffFormPage() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [jobTitles, setJobTitles] = useState<string[]>([]);
+
+  useEffect(() => {
+    api.get<{ titles: { canonical_title: string }[] }>("/staff/meta/job-titles")
+      .then(res => setJobTitles(res.titles.map(t => t.canonical_title)))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!isEdit) return;
@@ -72,6 +79,23 @@ export default function StaffFormPage() {
       });
     });
   }, [id, isEdit]);
+  // Auto-update department when jobTitle changes
+  useEffect(() => {
+    if (!form.jobTitle) {
+      setForm((prev) => ({ ...prev, department: "" }));
+      return;
+    }
+    const searchParams = new URLSearchParams({ title: form.jobTitle });
+    api
+      .get<{ category: string | null }>(`/staff/meta/job-title-category?${searchParams}`)
+      .then((res) => {
+        setForm((prev) => ({ ...prev, department: res.category ?? "" }));
+      })
+      .catch(() => {
+        // Si pas trouvé, laisser vide
+        setForm((prev) => ({ ...prev, department: "" }));
+      });
+  }, [form.jobTitle]);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -135,7 +159,15 @@ export default function StaffFormPage() {
           </div>
           <div className="field">
             <label>Job title</label>
-            <input value={form.jobTitle} onChange={(e) => update("jobTitle", e.target.value)} />
+            <input 
+              list="job-titles-list"
+              value={form.jobTitle} 
+              onChange={(e) => update("jobTitle", e.target.value)}
+              placeholder="Type to search or select..."
+            />
+            <datalist id="job-titles-list">
+              {jobTitles.map((title) => <option key={title} value={title} />)}
+            </datalist>
           </div>
         </div>
 
@@ -169,12 +201,17 @@ export default function StaffFormPage() {
         </div>
 
         <div className="form-row">
-          {/* No department dropdown: not reliably derivable from the historical
-              import (free text in the source, see claude/staff-module-design.md),
-              so it's a plain text field, curated by hand. */}
+          {/* Department is auto-calculated from job_title → job_titles.category.
+              It's read-only and updated automatically when job_title changes. */}
           <div className="field">
             <label>Department</label>
-            <input value={form.department} onChange={(e) => update("department", e.target.value)} />
+            <input 
+              value={form.department} 
+              readOnly 
+              disabled 
+              title="Auto-calculated from job title"
+              className="muted"
+            />
           </div>
           <div className="field">
             <label>Nationality</label>

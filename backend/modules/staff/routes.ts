@@ -14,9 +14,18 @@ router.use(requireAuth);
 // revenir dessus.
 router.use(requireRole("admin", "editor"));
 
+// Job titles management (admin only)
+router.get("/meta/job-titles", controller.listJobTitles);
+router.post("/meta/job-titles", requireRole("admin"), controller.createJobTitle);
+router.get("/meta/job-titles/:id", controller.getJobTitleDetail);
+router.patch("/meta/job-titles/:id", requireRole("admin"), controller.updateJobTitle);
+router.post("/meta/job-titles/:id/variants", requireRole("admin"), controller.addJobTitleVariant);
+router.delete("/meta/job-titles/:variantId/variants", requireRole("admin"), controller.removeJobTitleVariant);
+
 router.get("/", controller.list);
 router.get("/facets", controller.facets);
 router.post("/import", requireRole("admin"), controller.importUpload, controller.importStaff);
+router.get("/meta/job-title-category", controller.getJobTitleCategory);
 router.get("/:id", controller.getOne);
 router.post("/", requireRole("admin"), controller.create);
 router.patch("/:id", requireRole("admin"), controller.update);
