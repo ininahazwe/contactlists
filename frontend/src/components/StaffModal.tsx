@@ -80,6 +80,7 @@ const emptyWelfareForm: WelfareFormState = {
   eventName: "",
   eventDate: "",
   amount: "",
+  currency: "USD",
   notes: "",
 };
 
