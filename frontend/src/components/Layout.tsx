@@ -8,6 +8,7 @@ import {
   IconHome,
   IconLogout,
   IconPlus,
+  IconSearch,
   IconTimeline,
   IconUsers,
 } from "./Icons";
@@ -19,7 +20,10 @@ const TABS = [
 
 // Admin + editor, not read_only -- mirrors the backend's
 // requireRole("admin", "editor") on /api/staff (see StaffRoute).
-const STAFF_TABS = [{ to: "/staff", label: "Staff", icon: IconUsers, end: false }];
+const STAFF_TABS = [
+  { to: "/staff", label: "Staff", icon: IconUsers, end: false },
+  { to: "/staff/search", label: "Search", icon: IconSearch, end: false },
+];
 
 // Only shown to admins. The screen itself is guarded, and so is the API
 // behind it: hiding the tab just keeps the nav honest about what a given

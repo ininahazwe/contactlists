@@ -29,6 +29,7 @@ export const listStaffQuerySchema = z.object({
   status: staffStatusEnum.optional(),
   employmentType: staffEmploymentTypeEnum.optional(),
   department: z.string().optional(),
+  seniorityLevel: z.string().optional(),
   country: z.string().optional(),
   yearJoinedFrom: z.coerce.number().int().min(1950).max(2100).optional(),
   yearJoinedTo: z.coerce.number().int().min(1950).max(2100).optional(),

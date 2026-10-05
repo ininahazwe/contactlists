@@ -38,6 +38,34 @@ async function validateJobTitle(jobTitle: string | undefined): Promise<void> {
   }
 }
 
+
+// ============================================================
+// SEARCH FILTERS & OPTIONS
+// ============================================================
+
+export async function getSearchFilters(req: Request, res: Response): Promise<void> {
+  const departments = await query<{ department: string }[]>(
+    "SELECT DISTINCT department FROM staff WHERE department IS NOT NULL ORDER BY department",
+    []
+  );
+
+  const severities = await query<{ seniority_level: string }[]>(
+    "SELECT DISTINCT seniority_level FROM job_titles WHERE seniority_level IS NOT NULL ORDER BY CASE WHEN seniority_level = 'Intern' THEN 1 WHEN seniority_level = 'Staff' THEN 2 WHEN seniority_level = 'Mid' THEN 3 WHEN seniority_level = 'Senior' THEN 4 WHEN seniority_level = 'Executive' THEN 5 ELSE 6 END",
+    []
+  );
+
+  const countries = await query<{ nationality: string }[]>(
+    "SELECT DISTINCT nationality FROM staff WHERE nationality IS NOT NULL ORDER BY nationality",
+    []
+  );
+
+  res.json({
+    departments: departments.map(d => d.department),
+    severities: severities.map(s => s.seniority_level),
+    countries: countries.map(c => c.nationality),
+  });
+}
+
 export async function list(req: Request, res: Response): Promise<void> {
   const filters = listStaffQuerySchema.parse(req.query);
   const { items, total } = await service.listStaff(filters);

@@ -96,6 +96,11 @@ export async function listStaff(
     conditions.push("s.department = ?");
     params.push(filters.department);
   }
+  if (filters.seniorityLevel) {
+    joins.push("LEFT JOIN job_titles jt ON s.job_title = jt.canonical_title");
+    conditions.push("jt.seniority_level = ?");
+    params.push(filters.seniorityLevel);
+  }
   if (filters.country) {
     conditions.push("s.nationality = ?");
     params.push(filters.country);
@@ -330,12 +335,13 @@ export interface Facets {
   totals: { total: number; active: number; former: number };
   employmentTypes: { value: StaffEmploymentType; count: number }[];
   departments: { value: string; count: number }[];
+  seniorityLevels: { value: string; count: number }[];
   countries: { value: string; count: number }[];
   engagementTypes: { value: EngagementType; count: number }[];
 }
 
 export async function getFacets(): Promise<Facets> {
-  const [totalsRows, employmentTypes, departments, countries, engagementTypes] = await Promise.all([
+  const [totalsRows, employmentTypes, departments, seniorityLevels, countries, engagementTypes] = await Promise.all([
     query<{ total: number; active: number; former: number }[]>(
       `SELECT COUNT(*) AS total,
               SUM(status = 'active') AS active,
@@ -351,6 +357,20 @@ export async function getFacets(): Promise<Facets> {
        GROUP BY department ORDER BY count DESC`
     ),
     query<{ value: string; count: number }[]>(
+      `SELECT jt.seniority_level AS value, COUNT(*) AS count 
+       FROM staff s
+       JOIN job_titles jt ON s.job_title = jt.canonical_title
+       WHERE jt.seniority_level IS NOT NULL
+       GROUP BY jt.seniority_level 
+       ORDER BY CASE jt.seniority_level
+         WHEN 'Intern' THEN 1
+         WHEN 'Staff' THEN 2
+         WHEN 'Mid' THEN 3
+         WHEN 'Senior' THEN 4
+         WHEN 'Executive' THEN 5
+         ELSE 6 END`
+    ),
+    query<{ value: string; count: number }[]>(
       `SELECT nationality AS value, COUNT(*) AS count FROM staff
        WHERE nationality IS NOT NULL AND nationality <> ''
        GROUP BY nationality ORDER BY count DESC`
@@ -364,6 +384,7 @@ export async function getFacets(): Promise<Facets> {
     totals: totalsRows[0] ?? { total: 0, active: 0, former: 0 },
     employmentTypes,
     departments,
+    seniorityLevels,
     countries,
     engagementTypes,
   };

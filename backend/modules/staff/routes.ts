@@ -22,6 +22,7 @@ router.patch("/meta/job-titles/:id", requireRole("admin"), controller.updateJobT
 router.post("/meta/job-titles/:id/variants", requireRole("admin"), controller.addJobTitleVariant);
 router.delete("/meta/job-titles/:variantId/variants", requireRole("admin"), controller.removeJobTitleVariant);
 
+router.get("/meta/search-filters", controller.getSearchFilters);
 router.get("/", controller.list);
 router.get("/facets", controller.facets);
 router.post("/import", requireRole("admin"), controller.importUpload, controller.importStaff);

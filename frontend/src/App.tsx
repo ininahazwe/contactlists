@@ -16,6 +16,7 @@ import SearchPage from "./pages/SearchPage";
 import StaffPage from "./pages/StaffPage";
 import StaffFormPage from "./pages/StaffFormPage";
 import StaffJobTitlesPage from "./pages/StaffJobTitlesPage";
+import StaffSearchPage from "./pages/StaffSearchPage";
 
 export default function App() {
   return (
@@ -35,6 +36,7 @@ export default function App() {
 
               <Route element={<StaffRoute />}>
                 <Route path="/staff" element={<StaffPage />} />
+                <Route path="/staff/search" element={<StaffSearchPage />} />
               </Route>
 
               <Route element={<AdminRoute />}>
