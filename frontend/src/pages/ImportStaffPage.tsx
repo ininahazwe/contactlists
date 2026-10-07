@@ -85,7 +85,7 @@ export default function ImportStaffPage() {
               <IconUpload />
               {uploading ? "Importing..." : "Import"}
             </button>
-            <button type="button" className="btn btn-ghost" onClick={() => navigate("/")}>
+            <button type="button" className="btn btn-ghost" onClick={() => navigate("/staff")}>
               Cancel
             </button>
           </div>

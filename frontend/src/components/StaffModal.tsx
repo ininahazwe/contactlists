@@ -84,6 +84,27 @@ const emptyWelfareForm: WelfareFormState = {
   notes: "",
 };
 
+/** Dates d'un engagement : plage lisible quand elle est connue, sinon le texte d'origine ("June"). */
+function engagementDateLabel(e: StaffEngagementEntry): string {
+  if (e.start_date) {
+    if (e.end_date && e.end_date !== e.start_date) {
+      const sameYear = e.start_date.slice(0, 4) === e.end_date.slice(0, 4);
+      const start = sameYear
+        ? new Date(e.start_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+        : formatDate(e.start_date);
+      return `${start} – ${formatDate(e.end_date)}`;
+    }
+    return formatDate(e.start_date);
+  }
+  return e.date_text || "—";
+}
+
+/** Infobulle de la colonne pays : ville + pays quand les deux sont connus. */
+function locationTitle(e: StaffEngagementEntry): string | undefined {
+  const parts = [e.place, e.country].filter((v): v is string => !!v);
+  return parts.length > 0 ? Array.from(new Set(parts)).join(", ") : undefined;
+}
+
 /**
  * Staff profile: identity, career history and engagements are fetched with
  * the rest of the profile (GET /api/staff/:id). staff_sensitive and
@@ -511,19 +532,20 @@ export default function StaffModal({ staffId, onClose }: Props) {
                   className="row row-grid"
                   style={{
                     cursor: "default",
-                    gridTemplateColumns: "auto 1fr auto auto",
+                    gridTemplateColumns: "auto 1fr minmax(84px, auto) auto auto",
                   }}
                 >
                   <span className="badge">
                     {STAFF_ENGAGEMENT_TYPE_LABELS[e.engagement_type] ?? e.engagement_type}
                   </span>
                   <span className="row-sub">
-                    {e.purpose || e.place || "—"}
+                    {e.purpose || "—"}
                     {e.role_in_engagement ? ` · ${e.role_in_engagement}` : ""}
                   </span>
-                  <span className="row-cell row-cell--sm">
-                    {e.date_text || (e.start_date ? formatDate(e.start_date) : "—")}
+                  <span className="row-cell row-cell--sm" title={locationTitle(e)}>
+                    {e.country || e.place || "—"}
                   </span>
+                  <span className="row-cell row-cell--sm">{engagementDateLabel(e)}</span>
                   {isAdmin && (
                     <button
                       className="icon-btn icon-btn--soft"

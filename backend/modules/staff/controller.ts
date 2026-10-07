@@ -431,6 +431,42 @@ export async function removeJobTitleVariant(req: Request, res: Response): Promis
   res.json({ success: true });
 }
 
+
+export async function getAuditTrail(req: Request, res: Response): Promise<void> {
+  const staffId = Number(req.params.id);
+  
+  // Vérifier que le staff existe
+  await service.getStaffById(staffId);
+  
+  // Récupérer l'audit log pour ce staff
+  const auditLog = await query<
+    {
+      id: number;
+      action: string;
+      entityType: string;
+      after: string | null;
+      changedAt: string;
+      userName: string;
+    }[]
+  >(
+    `SELECT 
+       audit_log.id,
+       audit_log.action,
+       audit_log.entity_type as entityType,
+       audit_log.after,
+       audit_log.created_at as changedAt,
+       users.full_name as userName
+     FROM audit_log
+     JOIN users ON audit_log.user_id = users.id
+     WHERE audit_log.entity_type = 'staff' AND audit_log.entity_id = ?
+     ORDER BY audit_log.created_at DESC
+     LIMIT 100`,
+    [staffId]
+  );
+
+  res.json({ auditLog });
+}
+
 export async function importStaff(req: Request, res: Response): Promise<void> {
   if (!req.user) throw AppError.unauthorized();
   if (!req.file) throw new AppError("No file uploaded", 400);

@@ -33,6 +33,7 @@ router.patch("/:id", requireRole("admin"), controller.update);
 router.delete("/:id", requireRole("admin"), controller.remove);
 
 // staff_sensitive : encore plus restreint, admin uniquement dans les deux sens.
+router.get("/:id/audit", requireRole("admin"), controller.getAuditTrail);
 router.get("/:id/sensitive", requireRole("admin"), controller.getSensitive);
 router.patch("/:id/sensitive", requireRole("admin"), controller.updateSensitive);
 

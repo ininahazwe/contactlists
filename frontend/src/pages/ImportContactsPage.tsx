@@ -151,7 +151,7 @@ export default function ImportContactsPage() {
               <IconUpload />
               {uploading ? "Importing..." : "Import"}
             </button>
-            <button type="button" className="btn btn-ghost" onClick={() => navigate("/")}>
+            <button type="button" className="btn btn-ghost" onClick={() => navigate("/contacts")}>
               Cancel
             </button>
           </div>
@@ -203,7 +203,7 @@ export default function ImportContactsPage() {
 
             {summary.errors === 0 && (
               <p className="muted" style={{ marginTop: 12, fontSize: 14 }}>
-                <Link to="/">Back to the directory</Link> to see the imported contacts.
+                <Link to="/contacts">Back to the directory</Link> to see the imported contacts.
               </p>
             )}
           </div>

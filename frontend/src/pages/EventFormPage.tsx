@@ -56,7 +56,7 @@ export default function EventFormPage() {
         description: description || undefined,
         organizationIds: selectedOrgIds.length ? selectedOrgIds : undefined,
       });
-      navigate(`/?event=${res.event.id}`);
+      navigate(`/contacts?event=${res.event.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error while saving");
     } finally {
@@ -174,7 +174,7 @@ export default function EventFormPage() {
           <button type="submit" className="btn btn-primary" disabled={saving}>
             {saving ? "Saving..." : "Create event"}
           </button>
-          <button type="button" className="btn btn-ghost" onClick={() => navigate("/")}>
+          <button type="button" className="btn btn-ghost" onClick={() => navigate("/contacts")}>
             Cancel
           </button>
         </div>

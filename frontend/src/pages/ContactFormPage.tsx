@@ -106,7 +106,7 @@ export default function ContactFormPage() {
         ? await api.patch<{ contact: Contact }>(`/contacts/${id}`, payload)
         : await api.post<{ contact: Contact }>("/contacts", payload);
       // Back to the directory with the contact's detail view open.
-      navigate(`/?contact=${res.contact.id}`);
+      navigate(`/contacts?contact=${res.contact.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error while saving");
     } finally {
@@ -240,7 +240,7 @@ export default function ContactFormPage() {
           <button type="submit" className="btn btn-primary" disabled={saving}>
             {saving ? "Saving..." : "Save"}
           </button>
-          <button type="button" className="btn btn-ghost" onClick={() => navigate("/")}>
+          <button type="button" className="btn btn-ghost" onClick={() => navigate("/contacts")}>
             Cancel
           </button>
         </div>
