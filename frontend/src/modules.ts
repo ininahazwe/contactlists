@@ -79,7 +79,6 @@ export const MODULES: ModuleDef[] = [
     icon: IconList,
     accent: "var(--lime)",
     landing: "/keydocs",
-    roles: ["admin", "editor"],
     tabs: [
       { to: "/keydocs", label: "Documents", icon: IconList, end: true },
       { to: "/keydocs/memberships", label: "Memberships", icon: IconBuilding },

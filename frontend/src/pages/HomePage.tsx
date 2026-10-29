@@ -40,7 +40,8 @@ export default function HomePage() {
         .then((f) => put("staff", `${formatCount(f.totals.active)} active staff`))
         .catch(() => undefined);
     }
-    if (role === "admin" || role === "editor") {
+    // Key Docs est désormais ouvert en lecture à tous les rôles authentifiés.
+    {
       api
         .get<{ documents: { total: number; byStatus: { status: string; total: number }[] } }>(
           "/keydocs/dashboard"

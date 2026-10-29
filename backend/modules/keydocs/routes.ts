@@ -6,9 +6,9 @@ const router = Router();
 
 router.use(requireAuth);
 
-// Même périmètre que /api/staff : documents institutionnels et adhésions
-// sont des données internes -- lecture admin + editor, écriture admin.
-router.use(requireRole("admin", "editor"));
+// Ouvert en lecture à tous les rôles authentifiés (admin, editor, read_only).
+// Les mutations restent réservées à l'admin via requireRole("admin") sur
+// chaque route concernée ci-dessous.
 
 router.get("/dashboard", controller.dashboard);
 

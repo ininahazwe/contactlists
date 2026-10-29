@@ -46,10 +46,13 @@ export default function App() {
                 <Route path="/staff" element={<StaffPage />} />
                 <Route path="/staff/search" element={<StaffSearchPage />} />
                 <Route path="/staff/dashboard" element={<StaffDashboardPage />} />
-                <Route path="/keydocs" element={<KeyDocsPage />} />
-                <Route path="/keydocs/memberships" element={<KeyDocsMembershipsPage />} />
-                <Route path="/keydocs/dashboard" element={<KeyDocsDashboardPage />} />
               </Route>
+
+              {/* Key Docs : ouvert à tous les rôles authentifiés (admin, editor, read_only).
+                  Les écrans gèrent eux-mêmes l'affichage des actions d'écriture (admin only). */}
+              <Route path="/keydocs" element={<KeyDocsPage />} />
+              <Route path="/keydocs/memberships" element={<KeyDocsMembershipsPage />} />
+              <Route path="/keydocs/dashboard" element={<KeyDocsDashboardPage />} />
 
               <Route element={<AdminRoute />}>
                 <Route path="/grants" element={<GrantsPage />} />
