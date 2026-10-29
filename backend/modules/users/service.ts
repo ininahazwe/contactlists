@@ -1,7 +1,7 @@
 import { query } from "../../db/pool";
 import { AppError } from "../../utils/AppError";
 import { UserRole } from "../../types/express";
-import { UpdateUserInput } from "./schema";
+import { CreateUserInput, UpdateUserInput } from "./schema";
 
 export interface UserRow {
   id: number;
@@ -23,6 +23,10 @@ const SELECT_USER = `
     FROM users u
 `;
 
+function isDuplicateError(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { code?: string }).code === "ER_DUP_ENTRY";
+}
+
 export async function listUsers(search?: string): Promise<UserRow[]> {
   if (search) {
     const like = `%${search}%`;
@@ -39,6 +43,34 @@ export async function getUserById(id: number): Promise<UserRow> {
   const user = rows[0];
   if (!user) throw AppError.notFound("User");
   return user;
+}
+
+/**
+ * Invites a user by email, ahead of their first sign-in. The row has no
+ * google_sub yet: when that person later signs in with "Sign in with
+ * Google" using this address, loginWithGoogle's lookup-by-email path
+ * links the Google account to this same row instead of creating a
+ * second one, so the role set here is what they land with.
+ */
+export async function createUser(input: CreateUserInput): Promise<UserRow> {
+  const name = input.name?.trim() || input.email.split("@")[0];
+  const role = input.role ?? "read_only";
+
+  let insertId: number;
+  try {
+    const result = await query<{ insertId: number }>(
+      "INSERT INTO users (email, name, role) VALUES (?, ?, ?)",
+      [input.email, name, role]
+    );
+    insertId = result.insertId;
+  } catch (err) {
+    if (isDuplicateError(err)) {
+      throw new AppError(`An account for "${input.email}" already exists`, 409);
+    }
+    throw err;
+  }
+
+  return getUserById(insertId);
 }
 
 async function countOtherActiveAdmins(excludedId: number): Promise<number> {

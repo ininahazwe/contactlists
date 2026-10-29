@@ -1,6 +1,7 @@
 import type { ComponentType, SVGProps } from "react";
 import {
   IconBuilding,
+  IconCash,
   IconGrid,
   IconList,
   IconLock,
@@ -27,7 +28,7 @@ export interface ModuleTab {
 }
 
 export interface ModuleDef {
-  id: "contacts" | "staff" | "keydocs" | "admin";
+  id: "contacts" | "staff" | "keydocs" | "grants" | "admin";
   label: string;
   description: string;
   icon: IconType;
@@ -63,11 +64,11 @@ export const MODULES: ModuleDef[] = [
     icon: IconUsers,
     accent: "var(--teal-2)",
     landing: "/staff",
-    roles: ["admin", "editor"],
+    roles: ["admin"],
     tabs: [
       { to: "/staff", label: "Directory", icon: IconUsers, end: true },
       { to: "/staff/dashboard", label: "Dashboard", icon: IconTimeline },
-      { to: "/staff/job-titles", label: "Job Titles", icon: IconList, roles: ["admin"] },
+      { to: "/staff/job-titles", label: "Job Titles", icon: IconList },
     ],
     prefixes: ["/staff"],
   },
@@ -85,6 +86,20 @@ export const MODULES: ModuleDef[] = [
       { to: "/keydocs/dashboard", label: "Compliance", icon: IconTimeline },
     ],
     prefixes: ["/keydocs"],
+  },
+  {
+    id: "grants",
+    label: "Grants",
+    description: "Donors and the projects/grants they fund: budget, timeline, reporting cycle and status.",
+    icon: IconCash,
+    accent: "var(--soft-2)",
+    landing: "/grants",
+    roles: ["admin"],
+    tabs: [
+      { to: "/grants", label: "Projects", icon: IconCash, end: true },
+      { to: "/grants/donors", label: "Donors", icon: IconBuilding },
+    ],
+    prefixes: ["/grants"],
   },
   {
     // Séparé des autres modules : montré à part sur l'accueil, réservé aux admins.

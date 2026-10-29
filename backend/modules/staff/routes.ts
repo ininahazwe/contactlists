@@ -7,12 +7,10 @@ const router = Router();
 router.use(requireAuth);
 
 // Contrairement à /api/contacts (ouvert à read_only), tout ce module est
-// réservé à admin/editor : c'est un répertoire RH interne, pas le
-// répertoire externe. Décision prise en lisant le modèle de rôles existant
-// (users.role = admin | editor | read_only, pas de rôle "hr" dédié) plutôt
-// que d'en ajouter un -- voir la note dans README du module si besoin de
-// revenir dessus.
-router.use(requireRole("admin", "editor"));
+// réservé aux admins : c'est un répertoire RH interne, pas le répertoire
+// externe. Auparavant ouvert aussi aux editors ; restreint à la demande
+// de l'utilisateur (voir aussi StaffRoute.tsx côté frontend).
+router.use(requireRole("admin"));
 
 // Job titles management (admin only)
 router.get("/meta/job-titles", controller.listJobTitles);

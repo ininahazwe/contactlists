@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import Avatar from "../components/Avatar";
-import { IconSearch, IconUsers } from "../components/Icons";
+import { IconPlus, IconSearch, IconUsers } from "../components/Icons";
 import { ManagedUser, USER_ROLE_LABELS, UserRole } from "../types";
 
 const ROLES: UserRole[] = ["read_only", "editor", "admin"];
@@ -25,6 +25,13 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<number | null>(null);
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newRole, setNewRole] = useState<UserRole>("read_only");
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
 
   function load() {
     setLoading(true);
@@ -58,6 +65,31 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function addUser(e: FormEvent) {
+    e.preventDefault();
+    const email = newEmail.trim();
+    if (!email) return;
+
+    setAdding(true);
+    setAddError(null);
+    try {
+      const res = await api.post<{ user: ManagedUser }>("/users", {
+        email,
+        name: newName.trim() || undefined,
+        role: newRole,
+      });
+      setItems((prev) => [...prev, res.user].sort((a, b) => a.name.localeCompare(b.name)));
+      setNewEmail("");
+      setNewName("");
+      setNewRole("read_only");
+      setShowAdd(false);
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : "Error");
+    } finally {
+      setAdding(false);
+    }
+  }
+
   return (
     <>
       <div className="page-head">
@@ -77,8 +109,70 @@ export default function AdminUsersPage() {
                 : `${items.length} accounts · ${activeAdmins} active admin${activeAdmins > 1 ? "s" : ""}`}
             </p>
           </div>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => {
+              setShowAdd((v) => !v);
+              setAddError(null);
+            }}
+          >
+            <IconPlus className="i" />
+            Add user
+          </button>
         </div>
       </div>
+
+      {showAdd && (
+        <section className="card">
+          <div className="card-head">
+            <h2 className="card-title">Add a user by email</h2>
+          </div>
+          <form onSubmit={addUser} className="row" style={{ flexWrap: "wrap", gap: 12 }}>
+            <input
+              type="email"
+              required
+              className="search-input"
+              style={{ flex: "1 1 260px" }}
+              placeholder="person@mfwa.org"
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+              disabled={adding}
+            />
+            <input
+              type="text"
+              className="search-input"
+              style={{ flex: "1 1 200px" }}
+              placeholder="Name (optional)"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              disabled={adding}
+            />
+            <div className="seg">
+              {ROLES.map((role) => (
+                <button
+                  key={role}
+                  type="button"
+                  className={`seg-btn${newRole === role ? " is-active" : ""}`}
+                  disabled={adding}
+                  onClick={() => setNewRole(role)}
+                >
+                  {USER_ROLE_LABELS[role]}
+                </button>
+              ))}
+            </div>
+            <button type="submit" className="btn btn-primary" disabled={adding || !newEmail.trim()}>
+              {adding ? "Adding..." : "Add"}
+            </button>
+          </form>
+          {addError && <p className="error-text">{addError}</p>}
+          <p className="muted" style={{ marginTop: 8 }}>
+            The account is created right away with the role above. The person signs in with
+            &quot;Sign in with Google&quot; using this same address whenever they&apos;re ready — no
+            invitation email is sent.
+          </p>
+        </section>
+      )}
 
       <section className="card search-panel">
         <div className="search-field">

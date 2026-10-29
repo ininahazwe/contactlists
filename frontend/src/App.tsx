@@ -22,6 +22,8 @@ import StaffDashboardPage from "./pages/StaffDashboardPage";
 import KeyDocsPage from "./pages/KeyDocsPage";
 import KeyDocsMembershipsPage from "./pages/KeyDocsMembershipsPage";
 import KeyDocsDashboardPage from "./pages/KeyDocsDashboardPage";
+import GrantsPage from "./pages/GrantsPage";
+import GrantsDonorsPage from "./pages/GrantsDonorsPage";
 
 export default function App() {
   return (
@@ -50,6 +52,8 @@ export default function App() {
               </Route>
 
               <Route element={<AdminRoute />}>
+                <Route path="/grants" element={<GrantsPage />} />
+                <Route path="/grants/donors" element={<GrantsDonorsPage />} />
                 <Route path="/admin/users" element={<AdminUsersPage />} />
                 <Route path="/admin/activity" element={<AdminActivityPage />} />
                 <Route path="/staff/import" element={<ImportStaffPage />} />

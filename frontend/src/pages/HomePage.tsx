@@ -34,11 +34,13 @@ export default function HomePage() {
       )
       .catch(() => undefined);
 
-    if (role === "admin" || role === "editor") {
+    if (role === "admin") {
       api
         .get<{ totals: { active: number; total: number } }>("/staff/facets")
         .then((f) => put("staff", `${formatCount(f.totals.active)} active staff`))
         .catch(() => undefined);
+    }
+    if (role === "admin" || role === "editor") {
       api
         .get<{ documents: { total: number; byStatus: { status: string; total: number }[] } }>(
           "/keydocs/dashboard"

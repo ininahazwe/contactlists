@@ -539,6 +539,40 @@ section.card{
   gap: 8px;
 }
 
+/* Carte de groupe repliable (ex: un bailleur avec ses projets sur /grants). */
+.donor-group-head {
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.donor-group-head .card-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.donor-group-head .chev {
+  transition: transform 0.18s;
+  flex: none;
+}
+.donor-group-head.is-open .chev {
+  transform: rotate(180deg);
+}
+
+.mini-top .chev {
+  margin-left: auto;
+  flex: none;
+  transition: transform 0.18s;
+}
+.mini.is-open .chev {
+  transform: rotate(180deg);
+}
+
 .label {
   margin: 0;
   font-size: 13px;

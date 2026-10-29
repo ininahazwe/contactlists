@@ -1,12 +1,30 @@
 import { Request, Response } from "express";
 import { AppError } from "../../utils/AppError";
 import { recordAudit } from "../../middleware/auditLogger";
-import { updateUserSchema } from "./schema";
+import { createUserSchema, updateUserSchema } from "./schema";
 import * as service from "./service";
 
 export async function list(req: Request, res: Response): Promise<void> {
   const items = await service.listUsers(req.query.search as string | undefined);
   res.json({ items });
+}
+
+export async function create(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw AppError.unauthorized();
+
+  const input = createUserSchema.parse(req.body);
+  const user = await service.createUser(input);
+
+  await recordAudit({
+    userId: req.user.id,
+    action: "create",
+    entityType: "user",
+    entityId: user.id,
+    after: { email: user.email, name: user.name, role: user.role },
+    req,
+  });
+
+  res.status(201).json({ user });
 }
 
 export async function update(req: Request, res: Response): Promise<void> {

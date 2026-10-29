@@ -142,7 +142,7 @@ export async function createCategory(name: string): Promise<{ id: number; name: 
     );
     return { id: result.insertId, name };
   } catch (err) {
-    if (isDuplicateError(err)) throw new AppError(`La catégorie "${name}" existe déjà`, 409);
+    if (isDuplicateError(err)) throw new AppError(`Category "${name}" already exists`, 409);
     throw err;
   }
 }
@@ -215,12 +215,12 @@ async function assertCategory(categoryId: number): Promise<void> {
     "SELECT id FROM key_document_categories WHERE id = ?",
     [categoryId]
   );
-  if (!rows[0]) throw new AppError("Catégorie inconnue", 400);
+  if (!rows[0]) throw new AppError("Unknown category", 400);
 }
 
 async function assertStaff(staffId: number): Promise<void> {
   const rows = await query<{ id: number }[]>("SELECT id FROM staff WHERE id = ?", [staffId]);
-  if (!rows[0]) throw new AppError("Membre du staff inconnu", 400);
+  if (!rows[0]) throw new AppError("Unknown staff member", 400);
 }
 
 export async function createDocument(
@@ -240,7 +240,7 @@ export async function createDocument(
     return (await getDocument(result.insertId)).document;
   } catch (err) {
     if (isDuplicateError(err)) {
-      throw new AppError("Un document de ce titre existe déjà dans cette catégorie", 409);
+      throw new AppError("A document with this title already exists in this category", 409);
     }
     throw err;
   }
@@ -263,7 +263,7 @@ export async function updateDocument(
       );
     } catch (err) {
       if (isDuplicateError(err)) {
-        throw new AppError("Un document de ce titre existe déjà dans cette catégorie", 409);
+        throw new AppError("A document with this title already exists in this category", 409);
       }
       throw err;
     }
@@ -377,7 +377,7 @@ export async function createMembership(
     return getMembership(result.insertId);
   } catch (err) {
     if (isDuplicateError(err)) {
-      throw new AppError(`Une adhésion "${input.institution}" existe déjà`, 409);
+      throw new AppError(`A membership for "${input.institution}" already exists`, 409);
     }
     throw err;
   }
@@ -397,7 +397,7 @@ export async function updateMembership(
       );
     } catch (err) {
       if (isDuplicateError(err)) {
-        throw new AppError("Une adhésion de ce nom existe déjà", 409);
+        throw new AppError("A membership with this name already exists", 409);
       }
       throw err;
     }

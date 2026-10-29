@@ -126,7 +126,7 @@ function parseStaffSheet(workbook: ExcelJS.Workbook): {
   roleHistory: ParsedRoleHistoryRow[];
 } {
   const sheet = workbook.getWorksheet("MFWA Staff Details");
-  if (!sheet) throw new Error('Onglet "MFWA Staff Details" introuvable dans le classeur.');
+  if (!sheet) throw new Error('Sheet "MFWA Staff Details" not found in the workbook.');
 
   const staff: ParsedStaffRow[] = [];
   const roleHistory: ParsedRoleHistoryRow[] = [];

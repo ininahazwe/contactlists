@@ -14,6 +14,7 @@ import searchRoutes from "./modules/search/routes";
 import userRoutes from "./modules/users/routes";
 import staffRoutes from "./modules/staff/routes";
 import keyDocsRoutes from "./modules/keydocs/routes";
+import grantsRoutes from "./modules/grants/routes";
 
 export function createApp(): Express {
   const app = express();
@@ -39,6 +40,7 @@ export function createApp(): Express {
   app.use("/api/users", userRoutes);
   app.use("/api/staff", staffRoutes);
   app.use("/api/keydocs", keyDocsRoutes);
+  app.use("/api/grants", grantsRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

@@ -16,7 +16,7 @@ import * as service from "./service";
 
 function idParam(value: string | string[] | undefined, label = "id"): number {
   const n = Number(value);
-  if (!Number.isInteger(n) || n <= 0) throw new AppError(`Paramètre ${label} invalide`, 400);
+  if (!Number.isInteger(n) || n <= 0) throw new AppError(`Invalid parameter: ${label}`, 400);
   return n;
 }
 
